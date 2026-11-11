@@ -1,0 +1,104 @@
+export type AnalyticsDocument = Record<string, any>
+
+export async function fetchAnalytics<T extends AnalyticsDocument = AnalyticsDocument>(path: string) {
+  return await $fetch<T>(`/data/analytics/${path}`)
+}
+
+export function formatCompact(value: number | string | null | undefined, maximumFractionDigits = 1) {
+  if (value == null || value === '') return '—'
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return '—'
+  return new Intl.NumberFormat('en-US', {
+    notation: amount >= 100_000 ? 'compact' : 'standard',
+    maximumFractionDigits,
+  }).format(amount)
+}
+
+export function formatCurrency(value: number | string | null | undefined, currency = 'USD', maximumFractionDigits = 2) {
+  if (value == null || value === '') return '—'
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return '—'
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency', currency, notation: amount >= 100_000 ? 'compact' : 'standard',
+    maximumFractionDigits,
+  }).format(amount)
+}
+
+export function formatPercent(value: number | string | null | undefined) {
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return '—'
+  return `${amount > 0 ? '+' : ''}${amount.toFixed(2)}%`
+}
+
+export function latest<T extends Record<string, any>>(rows: T[] | undefined, key: string) {
+  return rows?.length ? rows[rows.length - 1]?.[key] : undefined
+}
+
+export type ChartPoint = [string, number | null]
+export const MAX_TIME_SERIES_ITEMS = 365
+const lightModeChartColors: Record<string, string> = {
+  '#b4f273': '#4b7f24', '#79c8ee': '#2b789b', '#c3a5ff': '#7450b2',
+  '#f5c978': '#8b6018', '#ff8e84': '#b94b43', '#65d6b4': '#14785c',
+  '#9da8ff': '#5260b5', '#f49abd': '#a5456d', '#a7b0a2': '#687563', '#ff9f6e': '#b85320',
+}
+
+export function chartColorForTheme(color: string | undefined, isDark: boolean) {
+  const value = color ?? '#b4f273'
+  return isDark ? value : lightModeChartColors[value.toLowerCase()] ?? value
+}
+
+export type ChartSeries = {
+  name: string
+  type: 'line' | 'bar' | 'pie'
+  data: ChartPoint[] | { name: string, value: number }[]
+  color?: string
+  yAxisIndex?: number
+  valueFormat?: 'percent'
+  area?: boolean
+  smooth?: boolean
+  stack?: string
+  pointColors?: string[]
+}
+
+type SeriesField = { key: string, label: string, type?: 'line' | 'bar', color?: string, axis?: number, area?: boolean, valueFormat?: 'percent' }
+
+export function makeCurrencySeries(
+  documents: Record<string, AnalyticsDocument>,
+  fieldsByCurrency: Record<string, SeriesField[]>,
+) {
+  const result: Record<string, Record<string, ChartSeries[]>> = {}
+  for (const [period, document] of Object.entries(documents)) {
+    const rows = [...(document.observations ?? document.items ?? [])].sort((a, b) => {
+      const dateA = String(a.period_start ?? a.date ?? a.period ?? '')
+      const dateB = String(b.period_start ?? b.date ?? b.period ?? '')
+      return dateA.localeCompare(dateB)
+    })
+    result[period] = Object.fromEntries(Object.entries(fieldsByCurrency).map(([currency, fields]) => [
+      currency, fields.map((field) => ({
+        name: field.label,
+        type: field.type ?? 'line',
+        color: field.color,
+        yAxisIndex: field.axis,
+        valueFormat: field.valueFormat,
+        area: field.area,
+        smooth: field.type !== 'bar',
+        data: rows.map((row: Record<string, any>) => [
+          row.period ?? row.date ?? row.period_start,
+          row[field.key] == null ? null : Number(row[field.key]),
+        ]) as ChartPoint[],
+      })),
+    ]))
+  }
+  return result
+}
+
+export function makeSeries(
+  documents: Record<string, AnalyticsDocument>,
+  fields: SeriesField[],
+) {
+  return makeCurrencySeries(documents, { USD: fields })
+}
+
+export const periodNames: Record<string, string> = {
+  all_time: 'All time', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', quarterly: 'Quarterly', yearly: 'Yearly',
+}

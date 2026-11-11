@@ -1,0 +1,32 @@
+.env
+.env.*
+!.env.example
+
+# Local IDE configuration and local history artifacts
+/.idea/
+/local_history.patch
+
+# Generated raw, normalized, analytics, and legacy dataset JSON
+/data/raw/
+/data/normalized/
+/data/analytics/
+/data/**/*.json
+*.raw
+*.jsonl
+*.ndjson
+
+# Generated dashboard data and build output
+/dashboard/public/data/
+/dashboard/node_modules/
+/dashboard/.nuxt/
+/dashboard/.output/
+/dashboard/dist/
+/dashboard/coverage/
+
+# Local runtime and test caches
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+**/.pytest_cache/
+*.py[cod]
+*.log

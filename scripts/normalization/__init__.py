@@ -1,0 +1,1 @@
+"""Raw data normalization stage."""

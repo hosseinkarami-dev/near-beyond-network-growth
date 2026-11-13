@@ -10,7 +10,8 @@ from unittest.mock import Mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from bigquery import collect_daily_gross_burn
-from common import SOURCES, SourceName, fetch_all, raw_path
+from sources import SOURCES, SourceName, raw_path
+from fetch import fetch_all
 
 
 class BigQueryDailyBurnTests(unittest.TestCase):

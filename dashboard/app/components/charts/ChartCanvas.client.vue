@@ -17,7 +17,8 @@ const option = computed(() => {
   const color = dark ? '#9ca59b' : '#687365'
   const border = dark ? 'rgba(151, 166, 146, .12)' : 'rgba(43, 57, 42, .10)'
   const darkPieColors = ['#b4f273', '#79c8ee', '#c3a5ff', '#f5c978', '#ff8e84', '#65d6b4', '#9da8ff']
-  const pieColors = dark ? darkPieColors : darkPieColors.map((value) => chartColorForTheme(value, false))
+  const lightPieColors = ['#829873', '#7699a8', '#9889ae', '#938662', '#b7857f', '#70998b', '#818bae', '#aa8194']
+  const pieColors = dark ? darkPieColors : lightPieColors
   const seriesColor = (item: ChartSeries) => chartColorForTheme(item.color, dark)
   const isPie = props.pie && props.series.length === 1
   const axisCount = isPie ? 0 : Math.max(1, ...props.series.map((item) => (item.yAxisIndex ?? 0) + 1))
@@ -80,11 +81,11 @@ const option = computed(() => {
         return `<div style="min-width:150px"><div style="font-weight:600;margin-bottom:4px">${escapeHtml(heading)}</div>${rows}</div>`
       },
     },
-    legend: isPie ? { show: true, bottom: 0, icon: 'circle', textStyle: { color, fontSize: 11 } } : { show: props.series.length > 1, top: 0, left: 12, right: 0, width: '100%', itemWidth: 8, itemHeight: 8, itemGap: 10, icon: 'circle', textStyle: { color, fontSize: 10 } },
+    legend: isPie ? { show: true, bottom: 0, icon: 'circle', textStyle: { color, fontSize: 12 } } : { show: props.series.length > 1, top: 0, left: 12, right: 0, width: '100%', itemWidth: 8, itemHeight: 8, itemGap: 10, icon: 'circle', textStyle: { color, fontSize: 12 } },
     grid: isPie ? undefined : { left: 10, right: 14 + extraRightAxes * 40, top: props.series.length > 6 ? 52 : props.series.length > 1 ? 34 : 14, bottom: 8, containLabel: true },
     xAxis: isPie ? undefined : {
       type: 'category', boundaryGap: props.series.some((item) => item.type === 'bar'),
-      axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color, fontSize: 10, hideOverlap: true, margin: 14 },
+      axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color, fontSize: 12, hideOverlap: true, margin: 14 },
       splitLine: { show: false },
     },
     yAxis: isPie ? undefined : Array.from({ length: axisCount }, (_, index) => ({
@@ -94,17 +95,25 @@ const option = computed(() => {
       offset: index > 1 ? (index - 1) * 40 : 0,
       name: axisFormat(index) === 'percent' ? 'Rate (%)' : undefined,
       nameLocation: 'end',
-      nameTextStyle: { color: axisColor(index), fontSize: 9 },
+      nameTextStyle: { color: axisColor(index), fontSize: 12 },
       axisLine: { show: false },
       axisTick: { show: false },
-      axisLabel: { color: axisColor(index), fontSize: 10, formatter: (value: number) => axisFormat(index) === 'percent' ? `${Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(value)}%` : Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(value) },
+      axisLabel: { color: axisColor(index), fontSize: 12, formatter: (value: number) => axisFormat(index) === 'percent' ? `${Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(value)}%` : Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(value) },
       splitLine: index === 0 ? { lineStyle: { color: border, type: 'dashed' } } : { show: false },
     })),
     series: props.series.map((item) => ({
       name: item.name,
       type: item.type,
       data: item.type === 'pie'
-        ? (item.data as { name: string, value: number }[]).map((slice, index) => ({ ...slice, itemStyle: { color: pieColors[index % pieColors.length] } }))
+        ? (item.data as { name: string, value: number }[]).map((slice, index) => ({
+            ...slice,
+            itemStyle: {
+              color: pieColors[index % pieColors.length],
+              opacity: 1,
+              borderColor: dark ? '#20251f' : '#ffffff',
+              borderWidth: 1.5,
+            },
+          }))
         : (item.data as [string, number | null][]).slice(-MAX_TIME_SERIES_ITEMS),
       yAxisIndex: item.yAxisIndex ?? 0,
       smooth: item.smooth ?? true,
@@ -114,11 +123,12 @@ const option = computed(() => {
       symbolSize: 7,
       stack: item.stack,
       emphasis: { focus: 'series' },
-      lineStyle: { width: 2.3 },
+      lineStyle: { width: dark ? 2.3 : 2.0, opacity: dark ? 1 : 0.9 },
       itemStyle: {
         color: item.pointColors
           ? (params: { dataIndex: number }) => chartColorForTheme(item.pointColors?.[params.dataIndex] ?? item.color, dark)
           : seriesColor(item),
+        opacity: dark ? 1 : item.type === 'bar' ? 0.8 : 1,
         borderRadius: item.type === 'bar' ? [4, 4, 0, 0] : 0,
       },
       areaStyle: item.area ? { opacity: dark ? 0.10 : 0.08 } : undefined,

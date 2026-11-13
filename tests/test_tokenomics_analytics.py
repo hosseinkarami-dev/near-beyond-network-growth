@@ -106,16 +106,16 @@ class TokenomicsAnalyticsTests(unittest.TestCase):
                 "metric": {"unit": "NEAR", "frequency": "daily"},
                 "observations": flow_observations,
             }), encoding="utf-8")
-            (supply_dir / "daily_contract_rewards.json").write_text(json.dumps({
-                "source": {
-                    "provider": "Google BigQuery",
-                    "data_status": "synthetic",
-                    "is_synthetic": True,
-                    "purpose": "development_and_dashboard_testing",
-                },
+            (supply_dir / "contract_reward_event_audit.json").write_text(json.dumps({
+                "source": {"provider": "Google BigQuery"},
+                "query_range": {"start_date": start.isoformat(),
+                                "end_date": (start + timedelta(days=34)).isoformat()},
                 "metric": {"unit": "NEAR", "frequency": "daily"},
                 "observations": [
                     {"utc_date": (start + timedelta(days=offset)).isoformat(),
+                     "total_reward_events": 10, "valid_reward_events": 9,
+                     "missing_previous_balance": 1, "ambiguous_order": 0,
+                     "non_positive_delta": 0, "event_count_coverage_pct": 90,
                      "contract_rewards_near": "0.125000000000000001"}
                     for offset in range(35)
                 ],
@@ -123,17 +123,13 @@ class TokenomicsAnalyticsTests(unittest.TestCase):
 
             output_path = build_tokenomics_analytics(root, Path(temp) / "analytics" / "tokenomics")
             snapshot = json.loads(output_path.read_text(encoding="utf-8"))
-            daily = json.loads((output_path.parent / "daily_metrics.json").read_text(encoding="utf-8"))
+            daily = json.loads((output_path.parent / "daily_near_price.json").read_text(encoding="utf-8"))
             daily_tokenomics = json.loads((output_path.parent / "daily_tokenomics.json").read_text(encoding="utf-8"))
+            daily_burn = json.loads((output_path.parent / "daily_burn.json").read_text(encoding="utf-8"))
+            daily_issuance = json.loads((output_path.parent / "daily_issuance.json").read_text(encoding="utf-8"))
             weekly_supply = json.loads((output_path.parent / "weekly_supply.json").read_text(encoding="utf-8"))
             monthly_supply = json.loads((output_path.parent / "monthly_supply.json").read_text(encoding="utf-8"))
             daily_supply = json.loads((output_path.parent / "daily_supply.json").read_text(encoding="utf-8"))
-            demo_path = output_path.parent / "contract_rewards_demo.json"
-            self.assertFalse(demo_path.exists())
-            build_tokenomics_analytics(
-                root, output_path.parent, include_synthetic_demo=True
-            )
-            demo = json.loads(demo_path.read_text(encoding="utf-8"), parse_float=Decimal)
 
         self.assertEqual(snapshot["network"], "NEAR mainnet")
         self.assertEqual(snapshot["metrics"]["total_supply"], 1034)
@@ -148,9 +144,9 @@ class TokenomicsAnalyticsTests(unittest.TestCase):
         self.assertAlmostEqual(snapshot["metrics"]["circulating_supply_ratio_pct"], 934 / 1034 * 100)
         self.assertEqual(snapshot["metrics"]["net_supply_change_30d_near"], 30)
         self.assertEqual(snapshot["metrics"]["gross_burn_30d_near"], 15)
-        self.assertEqual(snapshot["metrics"]["estimated_gross_issuance_30d_near"], 45)
+        self.assertEqual(snapshot["metrics"]["gross_issuance_30d_near"], 41.25)
         self.assertEqual(snapshot["metrics"]["deflationary_days_30d"], 0)
-        self.assertTrue(snapshot["data_quality"]["daily_contract_rewards"]["is_synthetic"])
+        self.assertEqual(snapshot["data_quality"]["contract_reward_event_audit"]["data_status"], "audited_valid_reward_events")
         self.assertNotIn("contract_rewards_30d_near", snapshot["metrics"])
         self.assertNotIn("tps", snapshot["metrics"])
         self.assertEqual(len(daily["observations"]), 35)
@@ -162,10 +158,10 @@ class TokenomicsAnalyticsTests(unittest.TestCase):
         self.assertEqual(weekly_supply["items"][0]["circulating_supply"], 906)
         self.assertEqual(monthly_supply["items"][0]["total_supply"], 1030)
         self.assertEqual(weekly_supply["metric"]["aggregation"], "period_end_snapshot")
-        self.assertEqual(daily_tokenomics["items"][-1]["daily_net_supply_change_near"], 1)
-        self.assertEqual(daily_tokenomics["items"][-1]["estimated_gross_issuance_near"], 1.5)
-        self.assertTrue(demo["is_synthetic"])
-        self.assertEqual(demo["summary"]["total_30d_near"], Decimal("3.750000000000000030"))
+        self.assertNotIn("net_burn_near", daily_tokenomics["items"][-1])
+        self.assertNotIn("gross_issuance_near", daily_tokenomics["items"][-1])
+        self.assertEqual(daily_burn["items"][-1]["net_burn_near"], 0.375)
+        self.assertEqual(daily_issuance["items"][-1]["gross_issuance_near"], 1.375)
 
 
 if __name__ == "__main__":

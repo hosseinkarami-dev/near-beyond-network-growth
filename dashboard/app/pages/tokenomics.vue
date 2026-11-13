@@ -1,20 +1,28 @@
 <script setup lang="ts">
-import { ChartNoAxesCombined, Coins, CircleDollarSign, TrendingUp, WalletCards, Flame } from '@lucide/vue'
-import { formatCompact, formatCurrency, formatPercent } from '~/composables/useAnalytics'
+import { ChartNoAxesCombined, Coins, CircleDollarSign, TrendingUp, WalletCards, Flame, UsersRound } from '@lucide/vue'
+import { fetchAnalyticsOrEmpty, formatCompact, formatCurrency, formatPercent } from '~/composables/useAnalytics'
+const analyticsBaseUrl = useRuntimeConfig().public.analyticsBaseUrl as string
 
 const periods = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly']
 const { data, pending, error, refresh } = await useAsyncData('tokenomics-analytics', async () => {
   const paths = [
     'dashboard.json', 'tokenomics/snapshot.json', 'tokenomics/daily_near_price.json', 'tokenomics/daily_supply.json',
-    'tokenomics/daily_tokenomics.json', 'tokenomics/daily_contract_rewards.json',
+    'tokenomics/daily_tokenomics.json',
+    'tokenomics/daily_burn.json', 'tokenomics/daily_issuance.json',
+    ...periods.filter((period) => period !== 'daily').flatMap((period) => [
+      `tokenomics/${period}_tokenomics.json`, `tokenomics/${period}_burn.json`,
+      `tokenomics/${period}_issuance.json`, `tokenomics/${period}_active_validator_stake.json`,
+    ]),
+    'tokenomics/buyback_transfer_type_breakdown.json',
+    ...periods.map((period) => `tokenomics/${period}_buyback_transfers.json`),
+    'tokenomics/daily_active_validator_stake.json',
     ...periods.filter((period) => period !== 'daily').map((period) => `tokenomics/${period}_supply.json`),
   ]
-  const docs = await Promise.all(paths.map((path) => $fetch<any>(`/data/analytics/${path}`)))
+  const docs = await Promise.all(paths.map((path) => fetchAnalyticsOrEmpty(path, analyticsBaseUrl)))
   return Object.fromEntries(paths.map((path, index) => [path, docs[index]]))
 }, { server: false })
 const snapshot = computed(() => data.value?.['tokenomics/snapshot.json'])
 const methodologies = computed(() => data.value?.['dashboard.json']?.methodologies)
-const tokenomicsRows = computed(() => data.value?.['tokenomics/daily_tokenomics.json']?.items ?? [])
 const priceByDate = computed(() => Object.fromEntries((data.value?.['tokenomics/daily_near_price.json']?.observations ?? []).map((row: any) => [row.date, Number(row.near_price)])))
 const priceChart = computed(() => ({
   daily: { USD: [
@@ -36,41 +44,108 @@ const supplyChart = computed(() => {
   }
   return result
 })
-const tokenomicsPeriods = computed(() => data.value?.['tokenomics/daily_tokenomics.json']?.periods ?? {})
+const historicalActiveStakeChart = computed(() => {
+  return Object.fromEntries(periods.map((period) => {
+    const document = period === 'daily'
+      ? data.value?.['tokenomics/daily_active_validator_stake.json']
+      : data.value?.[`tokenomics/${period}_active_validator_stake.json`]
+    const rows = document?.items ?? []
+    return [period, { 'NEAR / %': [
+      {
+        name: 'Active validator stake', type: 'line' as const, color: '#f5c978',
+        data: rows.map((row: any) => [row.date, row.total_active_stake_near == null ? null : Number(row.total_active_stake_near)]),
+      },
+      {
+        name: 'Active stake as % of total supply', type: 'line' as const, color: '#79c8ee',
+        yAxisIndex: 1, valueFormat: 'percent' as const,
+        data: rows.map((row: any) => [row.date, row.staking_ratio_pct == null ? null : Number(row.staking_ratio_pct)]),
+      },
+    ] }]
+  }))
+})
+function tokenomicsRows(period: string) {
+  const document = period === 'daily'
+    ? data.value?.['tokenomics/daily_tokenomics.json']
+    : data.value?.[`tokenomics/${period}_tokenomics.json`]
+  return document?.items ?? []
+}
+function burnRows(period: string) {
+  const document = period === 'daily'
+    ? data.value?.['tokenomics/daily_burn.json']
+    : data.value?.[`tokenomics/${period}_burn.json`]
+  return document?.items ?? []
+}
+function issuanceRows(period: string) {
+  const document = period === 'daily'
+    ? data.value?.['tokenomics/daily_issuance.json']
+    : data.value?.[`tokenomics/${period}_issuance.json`]
+  return document?.items ?? []
+}
+const buybackPie = computed(() => ({
+  daily: { NEAR: [{
+    name: 'Cumulative buyback inflow',
+    type: 'pie' as const,
+    data: (data.value?.['tokenomics/buyback_transfer_type_breakdown.json']?.observations ?? []).map((row: any) => ({
+      name: row.label,
+      value: Number(row.total_inflow_near),
+    })),
+  }] },
+}))
 const supplyDynamicsChart = computed(() => Object.fromEntries(periods.map((period) => {
-  const rows = tokenomicsPeriods.value[period] ?? []
+  const rows = issuanceRows(period)
   return [period, { NEAR: [
-    { name: 'Net issuance', type: 'line', color: '#b4f273', data: rows.map((row: any) => [row.period, row.net_issuance_near]) },
-    { name: 'Gross issuance', type: 'line', color: '#79c8ee', data: rows.map((row: any) => [row.period, row.gross_issuance_near]) },
+    { name: 'Net issuance', type: 'line', color: '#b4f273', data: rows.map((row: any) => [row.period ?? row.date, row.net_issuance_near]) },
+    { name: 'Gross issuance', type: 'line', color: '#79c8ee', data: rows.map((row: any) => [row.period ?? row.date, row.gross_issuance_near]) },
   ] }]
 })))
 const burnChart = computed(() => Object.fromEntries(periods.map((period) => {
-  const rows = tokenomicsPeriods.value[period] ?? []
+  const rows = burnRows(period)
   return [period, {
     NEAR: [
-      { name: 'Net burn', type: 'line', color: '#ff8e84', area: true, data: rows.map((row: any) => [row.period, row.net_burn_near]) },
+      { name: 'Net burn', type: 'line', color: '#ff8e84', area: true, data: rows.map((row: any) => [row.period ?? row.date, row.net_burn_near]) },
     ],
     USD: [
-      { name: 'Net burn', type: 'line', color: '#ff8e84', area: true, data: rows.map((row: any) => [row.period, row.net_burn_usd]) },
+      { name: 'Net burn', type: 'line', color: '#ff8e84', area: true, data: rows.map((row: any) => [row.period ?? row.date, row.net_burn_usd]) },
     ],
   }]
 })))
-const burnRateChart = computed(() => Object.fromEntries(periods.map((period) => {
-  const rows = tokenomicsPeriods.value[period] ?? []
-  return [period, { NEAR: [{ name: 'Burn Rate', type: 'line', color: '#79c8ee', area: true, valueFormat: 'percent', data: rows.map((row: any) => [row.period, row.burn_rate_pct]) }] }]
+const burnCoverageChart = computed(() => Object.fromEntries(periods.map((period) => {
+  const rows = issuanceRows(period)
+  return [period, { NEAR: [{ name: 'Burn Coverage', type: 'line', color: '#79c8ee', area: true, valueFormat: 'percent', data: rows.map((row: any) => [row.period ?? row.date, row.burn_coverage_pct]) }] }]
 })))
 const contractRewardsChart = computed(() => Object.fromEntries(periods.map((period) => {
-  const rows = tokenomicsPeriods.value[period] ?? []
+  const rows = burnRows(period)
   return [period, {
-    NEAR: [{ name: 'Contract rewards', type: 'line', color: '#f5c978', area: true, data: rows.map((row: any) => [row.period, row.contract_rewards_near]) }],
-    USD: [{ name: 'Contract rewards', type: 'line', color: '#f5c978', area: true, data: rows.map((row: any) => [row.period, row.contract_rewards_usd]) }],
+    NEAR: [{ name: 'Contract rewards', type: 'bar', color: '#f5c978', data: rows.map((row: any) => [row.period ?? row.date, row.contract_rewards_near]) }],
+    USD: [{ name: 'Contract rewards', type: 'bar', color: '#f5c978', data: rows.map((row: any) => [row.period ?? row.date, row.contract_rewards_usd]) }],
   }]
+})))
+const buybackChart = computed(() => Object.fromEntries(periods.map((period) => {
+  const rows = data.value?.[`tokenomics/${period}_buyback_transfers.json`]?.observations ?? []
+  return [period, { NEAR: [
+    {
+      name: 'NEAR Intents', type: 'bar', color: '#79c8ee', stack: 'buybacks',
+      data: rows.filter((row: any) => row.transfer_type === 'intents_transfer').map((row: any) => [row.period ?? row.date, Number(row.total_inflow_near)]),
+    },
+    {
+      name: 'Frontend Revenue', type: 'bar', color: '#b4f273', stack: 'buybacks',
+      data: rows.filter((row: any) => row.transfer_type === 'frontend_revenue').map((row: any) => [row.period ?? row.date, Number(row.total_inflow_near)]),
+    },
+    {
+      name: '1Click & Other Revenue', type: 'bar', color: '#f5c978', stack: 'buybacks',
+      data: rows.filter((row: any) => row.transfer_type === 'oneclick_and_other_revenue').map((row: any) => [row.period ?? row.date, Number(row.total_inflow_near)]),
+    },
+  ] }]
 })))
 const inflationChart = computed(() => ({
   daily: { NEAR: [{ name: 'Trailing 30D annualized net inflation', type: 'line' as const, color: '#b4f273', area: true,
-    valueFormat: 'percent' as const, data: (tokenomicsPeriods.value.daily ?? []).map((row: any) => [row.period, row.net_inflation_30d_annualized_pct]) }] },
+    valueFormat: 'percent' as const, data: tokenomicsRows('daily').map((row: any) => [row.date, row.net_inflation_30d_annualized_pct]) }] },
 }))
-const latestBurn = computed(() => tokenomicsRows.value.at(-1))
+function formatRate(value: number | string | null | undefined) {
+  if (value == null || value === '') return '—'
+  const amount = Number(value)
+  return Number.isFinite(amount) ? `${amount.toFixed(2)}%` : '—'
+}
 </script>
 
 <template>
@@ -99,6 +174,25 @@ const latestBurn = computed(() => tokenomicsRows.value.at(-1))
         <MetricCard label="Total supply" :value="`${formatCompact(snapshot?.metrics?.total_supply)} NEAR`" :icon="Coins" tone="amber" :change-label="''" body-align="center" value-size="large" mobile-body-align="left" />
       </div>
     </div>
+    <div class="section-title-row tokenomics-section-title"><div><h2>Staking &amp; validators</h2><p>Active network stake, validator concentration, and production</p></div></div>
+    <div class="metric-grid validator-metric-grid">
+      <MetricCard label="Total active stake" :value="`${formatCompact(snapshot?.metrics?.total_active_stake, 2)} NEAR`" :icon="WalletCards" tone="green" :change-label="''" :methodology="methodologies?.tokenomics?.staking" />
+      <MetricCard label="Staking ratio · circulating supply" :value="formatRate(snapshot?.metrics?.staking_ratio)" :icon="ChartNoAxesCombined" tone="blue" :change-label="''" :methodology="methodologies?.tokenomics?.staking" />
+      <MetricCard label="Active validators" :value="formatCompact(snapshot?.metrics?.active_validators_count, 0)" :icon="UsersRound" tone="violet" :change-label="''" :methodology="methodologies?.tokenomics?.validators" />
+      <MetricCard label="Top 10 stake share" :value="formatRate(snapshot?.metrics?.top_10_stake_share)" :icon="ChartNoAxesCombined" tone="amber" :change-label="''" :methodology="methodologies?.tokenomics?.validators" />
+    </div>
+    <LineChart class="tokenomics-active-stake-chart" title="Active validator stake and share of total supply" subtitle="Stake in NEAR and active stake as a percentage of total supply · period-end snapshots" :datasets="historicalActiveStakeChart" initial-period="daily" :height="320" :methodology="methodologies?.tokenomics?.historical_active_stake" />
+    <ValidatorTable :items="snapshot?.validators?.items ?? []" />
+    <div class="section-title-row tokenomics-section-title"><div><h2>NEAR Intents buybacks</h2><p>Daily transfers into the buyback multisig, grouped by transfer source · NEAR</p></div></div>
+    <div class="overview-grid tokenomics-metric-chart-layout">
+      <AnalyticsChart title="Buyback transfers by source" subtitle="Native NEAR and wNEAR inflows · stacked by transfer type" :datasets="buybackChart" initial-period="daily" :height="340" :methodology="methodologies?.tokenomics?.buybacks" />
+      <div class="tokenomics-buyback-side">
+        <AnalyticsChart title="Buyback flow breakdown" subtitle="Cumulative inflow by transfer type · NEAR" :datasets="buybackPie" :height="260" :methodology="methodologies?.tokenomics?.buybacks" />
+        <div class="metric-grid tokenomics-chart-metrics">
+          <MetricCard label="Buyback wallet · liquid balance" :value="`${formatCompact(snapshot?.metrics?.buyback_wallet_balance_near, 2)} NEAR`" :detail="snapshot?.metrics?.buyback_wallet_balance_date ?? '—'" :icon="WalletCards" tone="green" :change-label="''" mobile-body-align="left" body-align="center" :methodology="methodologies?.tokenomics?.buybacks" />
+        </div>
+      </div>
+    </div>
     <div class="section-title-row tokenomics-section-title"><div><h2>Net inflation</h2><p>Trailing net supply growth, annualized over 30 days, 3 months, and 1 year</p></div></div>
     <div class="overview-grid tokenomics-metric-chart-layout">
       <LineChart title="Current net inflation · 30D annualized" subtitle="Includes the effect of token burn" :datasets="inflationChart" initial-period="daily" :height="320" :methodology="methodologies?.tokenomics?.net_inflation" />
@@ -109,17 +203,17 @@ const latestBurn = computed(() => tokenomicsRows.value.at(-1))
       </div>
     </div>
     <div class="section-title-row tokenomics-section-title"><div><h2>Token issuance</h2><p>Net issuance after burn alongside estimated gross issuance · NEAR</p></div></div>
-    <LineChart title="Net and gross issuance" subtitle="Up to 365 daily observations; choose a calendar period" :datasets="supplyDynamicsChart" initial-period="daily" :height="360" :methodology="methodologies?.tokenomics?.supply_dynamics" />
+    <LineChart title="Net and gross issuance" subtitle="Starts where burn data is available · daily flows summed within each calendar period" :datasets="supplyDynamicsChart" initial-period="daily" :height="360" :methodology="methodologies?.tokenomics?.supply_dynamics" />
     <div class="section-title-row tokenomics-section-title"><div><h2>Burn &amp; contract rewards</h2><p>Compare contract rewards with fee burn and its offset against gross issuance</p></div></div>
     <div class="tokenomics-burn-charts">
       <LineChart title="Contract rewards" subtitle="Rewards by calendar period · NEAR or USD" :datasets="contractRewardsChart" initial-period="daily" initial-currency="NEAR" :height="320" :methodology="methodologies?.tokenomics?.contract_rewards" />
       <div class="tokenomics-burn-chart-grid">
-        <LineChart title="Net burn" subtitle="Gross fee burn less contract rewards · NEAR or USD" :datasets="burnChart" initial-period="daily" initial-currency="NEAR" :height="330" :methodology="methodologies?.tokenomics?.net_burn" />
-        <LineChart title="Burn Rate" subtitle="Fee burn as a share of estimated gross issuance · %" :datasets="burnRateChart" initial-period="daily" :height="330" :methodology="methodologies?.tokenomics?.burn_rate" />
+        <LineChart title="Net burn" subtitle="Tokens burnt less contract rewards · NEAR or USD" :datasets="burnChart" initial-period="daily" initial-currency="NEAR" :height="330" :methodology="methodologies?.tokenomics?.net_burn" />
+        <LineChart title="Burn Coverage" subtitle="Share of estimated gross issuance offset by net fee burn · %" :datasets="burnCoverageChart" initial-period="daily" :height="330" :methodology="methodologies?.tokenomics?.burn_coverage" />
       </div>
       <div class="metric-grid tokenomics-burn-metrics">
-        <MetricCard label="Net burn · latest day" :value="`${formatCompact(latestBurn?.net_burn_near, 2)} NEAR`" :detail="latestBurn?.date ?? '—'" :icon="Flame" tone="amber" :change-label="''" body-align="center" value-size="large" mobile-body-align="left" />
-        <MetricCard label="Burn Rate · latest day" :value="formatPercent(latestBurn?.burn_rate_pct)" :icon="TrendingUp" tone="violet" :change-label="''" body-align="center" value-size="large" mobile-body-align="left" :methodology="methodologies?.tokenomics?.burn_rate" />
+        <MetricCard label="Net burn · latest day" :value="`${formatCompact(snapshot?.metrics?.latest_net_burn_near, 2)} NEAR`" :detail="snapshot?.metrics?.latest_net_burn_date ?? '—'" :icon="Flame" tone="amber" :change-label="''" body-align="center" value-size="large" mobile-body-align="left" />
+        <MetricCard label="Burn Coverage · latest day" :value="formatPercent(snapshot?.metrics?.latest_burn_coverage_pct)" :detail="snapshot?.metrics?.latest_burn_coverage_date ?? '—'" :icon="TrendingUp" tone="violet" :change-label="''" body-align="center" value-size="large" mobile-body-align="left" :methodology="methodologies?.tokenomics?.burn_coverage" />
       </div>
     </div>
   </template>

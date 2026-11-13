@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 
-from common import SourceName, source_metadata
+from sources import SourceName, source_metadata
 
 OUTPUT_FILENAME = "nearusdt_1d_close_price.json"
 

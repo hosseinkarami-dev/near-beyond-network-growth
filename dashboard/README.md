@@ -1,6 +1,8 @@
-# NEARscope Analytics
+# NEARscope Investment Thesis
 
 The dashboard reads generated JSON from `../data/analytics` and presents it through a modular Nuxt and Vue interface.
+
+The dashboard data URL base can be overridden with `NUXT_PUBLIC_ANALYTICS_BASE_URL`. Its default remains `/data/analytics`; set the variable to another path or a hosted base URL when needed. See `.env.example`.
 
 ## Run locally
 
@@ -9,6 +11,12 @@ The dashboard reads generated JSON from `../data/analytics` and presents it thro
 3. Run `npm run dev` and open the local URL printed by Nuxt.
 
 The `dev`, `build`, and `generate` scripts copy the current Analytics JSON into `public/data/analytics` before Nuxt starts. The dashboard only reads these copies; it does not modify the source Analytics files.
+
+## Partial data availability
+
+The data pipeline isolates failures by source and analytics section. Missing or invalid raw data is skipped during normalization; a section whose required inputs are unavailable receives an empty snapshot while other sections continue building. Protocol categories are isolated from one another. Dashboard pages also treat an unavailable analytics JSON file as empty data, so one missing file does not prevent the page or the rest of the dashboard from rendering.
+
+Run `python ../scripts/main.py` from the dashboard directory to fetch, normalize, and rebuild analytics. After that pipeline finishes, run `npm run sync:data` to refresh the data served by an already-running dev server.
 
 ## Structure
 

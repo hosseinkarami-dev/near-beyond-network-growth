@@ -9,6 +9,7 @@ export function useDashboardTheme() {
   onMounted(() => {
     const stored = localStorage.getItem('near-dashboard-theme')
     if (stored === 'light' || stored === 'dark') theme.value = stored
+    document.documentElement.dataset.theme = theme.value
   })
 
   watch(theme, (value) => {
@@ -16,7 +17,7 @@ export function useDashboardTheme() {
       document.documentElement.dataset.theme = value
       localStorage.setItem('near-dashboard-theme', value)
     }
-  }, { immediate: true })
+  })
 
   function toggleTheme() {
     theme.value = theme.value === 'dark' ? 'light' : 'dark'

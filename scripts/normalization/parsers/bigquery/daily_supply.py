@@ -3,9 +3,8 @@
 from datetime import date
 from decimal import Decimal, InvalidOperation, localcontext
 
-from common import SourceName, get_source, source_metadata
-
-YOCTO_PER_NEAR = Decimal("1000000000000000000000000")
+from sources import SourceName, get_source, source_metadata
+from units import YOCTO_PER_NEAR
 
 
 def _near_value(value):
@@ -19,7 +18,7 @@ def _near_value(value):
         raise ValueError("BigQuery supply values must be finite numbers")
     with localcontext() as context:
         context.prec = max(50, len(yocto.as_tuple().digits) + 8)
-        near = yocto / YOCTO_PER_NEAR
+        near = yocto / Decimal(YOCTO_PER_NEAR)
     text = format(near, "f")
     return text.rstrip("0").rstrip(".") if "." in text else text
 
@@ -37,10 +36,16 @@ def parse_daily_supply(raw_data):
             day_text = record["utc_date"]
             day = date.fromisoformat(day_text)
             total_supply = _near_value(record["total_supply"])
-            circulating_supply = _near_value(record["circulating_supply"])
+            raw_circulating_supply = record["circulating_supply"]
+            circulating_supply = (
+                _near_value(raw_circulating_supply)
+                if raw_circulating_supply is not None else None
+            )
             # A zero circulating supply alongside a positive total supply is a
             # source gap, not a meaningful NEAR supply observation.
-            if Decimal(circulating_supply) == 0 and Decimal(total_supply) > 0:
+            if (circulating_supply is not None
+                    and Decimal(circulating_supply) == 0
+                    and Decimal(total_supply) > 0):
                 circulating_supply = None
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(f"Daily supply record {index} is missing valid supply data") from exc

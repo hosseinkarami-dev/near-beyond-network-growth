@@ -10,7 +10,8 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from bigquery import collect_daily_supply
-from common import SOURCES, SourceName, fetch_all, raw_path
+from sources import SOURCES, SourceName, raw_path
+from fetch import fetch_all
 
 
 def row(day, supply):
@@ -67,7 +68,7 @@ class BigQueryDailySupplyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "daily_supply.json"
             path.write_text(json.dumps([{"utc_date": "2020-01-02"}]))
-            with patch("bigquery.bigquery.Client") as client_factory:
+            with patch("collectors.bigquery.bigquery.Client") as client_factory:
                 self.assertTrue(collect_daily_supply(path, today_utc=date(2020, 1, 3)))
             client_factory.assert_not_called()
 

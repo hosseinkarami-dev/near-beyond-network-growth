@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
-from common import SourceName, get_source, source_metadata
+from sources import SourceName, get_source, source_metadata
 
 
 VALUE_FIELDS = (

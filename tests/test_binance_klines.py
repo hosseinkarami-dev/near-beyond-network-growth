@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from common import SOURCES, SourceName, raw_path
+from sources import SOURCES, SourceName, raw_path
 from normalization.parsers.binance.daily_klines import (
     OUTPUT_FILENAME,
     parse_binance_nearusdt_daily_klines,

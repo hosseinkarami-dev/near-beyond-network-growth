@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Activity, CircleDollarSign, Clock3, Cpu, FilePlus2, Layers3, UsersRound, Wallet, Zap, Coins } from '@lucide/vue'
-import { formatCompact, formatCurrency, formatPercent, makeCurrencySeries, makeSeries } from '~/composables/useAnalytics'
+import { fetchAnalyticsOrEmpty, formatCompact, formatCurrency, formatPercent, makeCurrencySeries, makeSeries } from '~/composables/useAnalytics'
+const analyticsBaseUrl = useRuntimeConfig().public.analyticsBaseUrl as string
 
 const periods = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly']
 const { data, pending, error, refresh } = await useAsyncData('network-analytics', async () => {
@@ -9,7 +10,7 @@ const { data, pending, error, refresh } = await useAsyncData('network-analytics'
     ...periods.map((period) => `network/${period}_metrics.json`),
     ...periods.filter((period) => period !== 'daily').map((period) => `network/${period}_stablecoin_supply.json`),
   ]
-  const docs = await Promise.all(paths.map((path) => $fetch<any>(`/data/analytics/${path}`)))
+  const docs = await Promise.all(paths.map((path) => fetchAnalyticsOrEmpty(path, analyticsBaseUrl)))
   return Object.fromEntries(paths.map((path, index) => [path, docs[index]]))
 }, { server: false })
 const snapshot = computed(() => data.value?.['network/snapshot.json'])

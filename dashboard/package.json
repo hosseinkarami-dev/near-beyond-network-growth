@@ -1,0 +1,22 @@
+{
+  "name": "nearscope-analytics-dashboard",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync:data": "node scripts/sync-analytics.mjs",
+    "predev": "npm run sync:data",
+    "dev": "nuxt dev",
+    "prebuild": "npm run sync:data",
+    "build": "nuxt build",
+    "pregenerate": "npm run sync:data",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview"
+  },
+  "dependencies": {
+    "@lucide/vue": "^1.70.0",
+    "echarts": "^6.1.0",
+    "nuxt": "^4.6.4",
+    "vue": "^3.5.45",
+    "vue-echarts": "^8.3.2"
+  }
+}

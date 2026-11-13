@@ -3,7 +3,7 @@
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
-from common import SourceName, get_source, source_metadata
+from sources import SourceName, get_source, source_metadata
 
 
 def _normalize_daily_flow(raw_data, *, source_name, value_field, metric_id, metric_name,
@@ -74,20 +74,68 @@ def parse_daily_gross_burn(raw_data):
     }
 
 
-def parse_daily_contract_rewards(raw_data):
-    """Pass the synthetic daily contract rewards fixture through unchanged."""
+def parse_contract_reward_event_audit(raw_data):
+    """Normalize audited daily reward aggregates and preserve audit coverage."""
 
+    if not isinstance(raw_data, dict) or raw_data.get("complete") is not True:
+        raise ValueError("contract reward audit must be a complete raw document")
+    query_range = raw_data.get("query_range")
+    if not isinstance(query_range, dict):
+        raise ValueError("contract reward audit query_range must be an object")
+    items = raw_data.get("items")
+    if not isinstance(items, list):
+        raise ValueError("contract reward audit items must be a list")
+
+    observations = []
+    seen_dates = set()
+    numeric_fields = (
+        "total_reward_events", "valid_reward_events", "missing_previous_balance",
+        "ambiguous_order", "non_positive_delta", "event_count_coverage_pct",
+        "contract_rewards_near",
+    )
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            raise ValueError(f"contract reward audit item {index} must be an object")
+        try:
+            date_text = item["utc_date"]
+            day = date.fromisoformat(date_text)
+            values = {}
+            for field in numeric_fields:
+                raw_value = item[field]
+                if isinstance(raw_value, bool) or not isinstance(raw_value, (int, float, Decimal)):
+                    raise TypeError(f"{field} must be numeric")
+                value = raw_value if isinstance(raw_value, Decimal) else Decimal(str(raw_value))
+                if not value.is_finite() or value < 0:
+                    raise ValueError(f"{field} must be finite and non-negative")
+                values[field] = value
+        except (KeyError, TypeError, ValueError, InvalidOperation) as exc:
+            raise ValueError(f"contract reward audit item {index} is invalid") from exc
+        if day.isoformat() != date_text or day in seen_dates:
+            raise ValueError(f"contract reward audit item {index} has an invalid or duplicate date")
+        if values["valid_reward_events"] > values["total_reward_events"]:
+            raise ValueError(f"contract reward audit item {index} has more valid than total events")
+        seen_dates.add(day)
+        observations.append({"utc_date": date_text, **values})
+
+    source = source_metadata(
+        SourceName.BIGQUERY_CONTRACT_REWARD_AUDIT,
+        dataset=get_source(SourceName.BIGQUERY_CONTRACT_REWARD_AUDIT).dataset,
+    )
     return {
-        "daily_contract_rewards.json": _normalize_daily_flow(
-            raw_data,
-            source_name=SourceName.BIGQUERY_DAILY_CONTRACT_REWARDS,
-            value_field="contract_rewards_near",
-            metric_id="near.daily_contract_rewards",
-            metric_name="Daily contract rewards",
-            data_status={
-                "data_status": "synthetic",
-                "is_synthetic": True,
-                "purpose": "development_and_dashboard_testing",
+        "contract_reward_event_audit.json": {
+            "schema_version": "1.0.0",
+            "network": "NEAR mainnet",
+            "source": source,
+            "query_range": query_range,
+            "metric": {
+                "id": "near.audited_contract_rewards",
+                "name": "Audited contract rewards",
+                "unit": "NEAR",
+                "frequency": "daily",
+                "value_type": "decimal",
+                "aggregation": "sum_of_valid_reward_event_balance_deltas",
             },
-        )
+            "time": {"timezone": "UTC", "date_convention": "UTC calendar date"},
+            "observations": observations,
+        }
     }

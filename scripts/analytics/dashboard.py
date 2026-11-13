@@ -5,11 +5,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from common import PROJECT_ROOT
+from paths import ANALYTICS_DATA_DIR
 from validation import validate_json
 
 
-ANALYTICS_ROOT = PROJECT_ROOT / "data" / "analytics"
+ANALYTICS_ROOT = ANALYTICS_DATA_DIR
 SECTIONS = (
     {
         "id": "network",
@@ -77,21 +77,37 @@ METHODOLOGIES = {
             "title": "Supply history",
             "description": "Supply is a point-in-time value. Weekly, monthly, quarterly, and yearly views use the last available observation in each period; supply is never summed across dates. Missing circulating-supply values remain empty.",
         },
+        "staking": {
+            "title": "NEAR staking ratio",
+            "description": "Staking ratio is the sum of active validator stake divided by latest circulating supply, multiplied by 100. Validator stake comes from the current NearBlocks validator list; circulating supply comes from the normalized daily supply dataset and has approximate float64 precision.",
+        },
+        "buybacks": {
+            "title": "NEAR Intents buybacks",
+            "description": "Daily inflows to buybacks.multisignature.near from intents.near and 1csfundsadmin.sputnik-dao.near are classified by transfer_type. Native NEAR transfers and wNEAR ft_transfer events are converted to NEAR and summed by source in analytics; stacked daily, weekly, monthly, quarterly, and yearly bars show period flow totals, not cumulative balances. The current wallet balance is the liquid amount from a finalized FastNEAR RPC view_account response and excludes locked stake.",
+        },
+        "historical_active_stake": {
+            "title": "Historical active validator stake",
+            "description": "For each UTC date from 2026-09-01 onward, the sampled block height comes from daily_supply.json. FastNEAR resolves that block to its epoch and returns the epoch's current_validators; their stake values are summed with arbitrary-precision integers and only the exact YoctoNEAR total is checkpointed in raw. Analytics converts it to NEAR and joins it to that date's total supply for the chart. Daily values are shown as-is; weekly, monthly, quarterly, and yearly views select the last available daily snapshot in each calendar period and do not accumulate values. Dates already present with the same block height are skipped on later fetches.",
+        },
+        "validators": {
+            "title": "NEAR validators",
+            "description": "Validator concentration uses active validator stake: top-N shares are the summed stake of the N largest validators divided by total active stake. HHI is the sum of squared percentage stake shares (0–10,000). Delegator counts are summed per active validator and may double-count accounts that delegate to multiple validators. Average commission is stake-weighted. Block production rate is total produced blocks divided by expected blocks where both are available.",
+        },
         "supply_dynamics": {
             "title": "Supply dynamics and gross issuance",
-            "description": "Net supply change is derived from consecutive daily total-supply snapshots. Gross issuance is estimated as net supply change plus gross burn. Issuance is approximate because total supply uses float64 and unmodeled adjustments may affect reconciliation.",
+            "description": "Net issuance is derived from consecutive daily total-supply snapshots. Net burn equals the execution outcome tokens_burnt amount minus separately credited daily contract rewards. tokens_burnt can include refund penalties, deleted gas-key balances, and global-contract deployment charges, and is not reconstructed from gas_burnt × gas_price. Estimated gross issuance equals net issuance plus net burn; it is null when either daily input is unavailable. Issuance is approximate because total supply uses float64 and unmodeled adjustments may affect reconciliation.",
         },
         "net_burn": {
-            "title": "Net burn and net burn rate",
-            "description": "Daily net burn equals gross burn minus daily contract rewards. Net burn rate is net burn divided by prior-day total supply, expressed as a percentage. USD values convert each day's NEAR amount using that UTC day's NEARUSDT close; period values sum daily observations.",
+            "title": "Net fee burn",
+            "description": "Daily net fee burn equals NEAR execution outcome tokens_burnt minus separately credited daily contract rewards. tokens_burnt can include refund penalties, deleted gas-key balances, and global-contract deployment charges; it is not reconstructed from gas_burnt × gas_price. USD values convert each day's NEAR amount using that UTC day's NEARUSDT close; period values sum daily observations.",
         },
         "net_inflation": {
             "title": "Trailing 30-day annualized net inflation",
             "description": "For each date, compare total supply with the supply exactly 30 calendar days earlier, then annualize the compounded growth: ((ending supply / starting supply)^(365/30) - 1) × 100. This measures net total supply growth and therefore includes the effect of burned tokens.",
         },
-        "burn_rate": {
-            "title": "Burn Rate",
-            "description": "Daily token burn in USD divided by estimated gross issuance in USD, expressed as a percentage. Daily USD values use the same date's NEARUSDT close, so the ratio also equals gross burn in NEAR divided by estimated gross issuance in NEAR. It is undefined when estimated gross issuance is zero or negative.",
+        "burn_coverage": {
+            "title": "Burn Coverage",
+            "description": "Daily Burn Coverage (%) = (Net Fee Burn (NEAR) / Estimated Gross Issuance (NEAR)) x 100. Net Fee Burn is net burn after subtracting contract rewards from execution outcome tokens_burnt. It is undefined when either value is unavailable or estimated gross issuance is zero or negative. Longer periods retain the existing flow aggregation: sum daily net burn and gross issuance within the calendar period, then calculate their ratio.",
         },
     },
     "near_intents": {
@@ -216,5 +232,6 @@ def build_dashboard_metadata(output_path: Path = ANALYTICS_ROOT / "dashboard.jso
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(validate_json(document), encoding="utf-8")
-    print(f"analytics dashboard: wrote metadata -> {output_path}")
+    from console_ui import console
+    console.print("[green]OK[/green] Dashboard metadata ready")
     return output_path

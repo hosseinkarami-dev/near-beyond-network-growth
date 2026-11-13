@@ -6,7 +6,7 @@ defineEmits<{ menu: [] }>()
 const route = useRoute()
 const { isDark, toggleTheme } = useDashboardTheme()
 const pageNames: Record<string, string> = {
-  '/': 'Dashboard', '/network': 'Network', '/tokenomics': 'Tokenomics',
+  '/': 'Dashboard', '/research': 'Research & Methodology', '/network': 'Network', '/tokenomics': 'Tokenomics',
   '/intents': 'Intents', '/protocols': 'Protocols',
 }
 </script>

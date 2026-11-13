@@ -1,7 +1,7 @@
 """Parser for DefiLlama historical chain TVL responses."""
 from datetime import datetime, timezone
 
-from common import SourceName, source_metadata
+from sources import SourceName, source_metadata
 
 
 def parse_historical_chain_tvl(raw_data):

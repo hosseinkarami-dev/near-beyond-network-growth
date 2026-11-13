@@ -6,14 +6,15 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from analytics.periods import period_bounds
-from common import PROJECT_ROOT
+from analytics.periods import CALENDAR_PERIODS, period_bounds
+from analytics.fallbacks import write_empty_protocol_snapshot
+from paths import ANALYTICS_DATA_DIR, NORMALIZED_DATA_DIR
 from validation import validate_json
 
 
-NORMALIZED_ROOT = PROJECT_ROOT / "data" / "normalized" / "defillama"
-ANALYTICS_ROOT = PROJECT_ROOT / "data" / "analytics" / "protocols"
-PERIODS = ("weekly", "monthly", "quarterly", "yearly")
+NORMALIZED_ROOT = NORMALIZED_DATA_DIR / "defillama"
+ANALYTICS_ROOT = ANALYTICS_DATA_DIR / "protocols"
+PERIODS = CALENDAR_PERIODS
 CATEGORIES = {
     "fees": {
         "directory": "near_fees",
@@ -427,11 +428,26 @@ def build_protocol_analytics(
 
     normalized_root = Path(normalized_root)
     output_root = Path(output_root)
-    prices = _load_near_prices(normalized_root)
-    results = {
-        category: _build_category(category, config, normalized_root, output_root, prices)
-        for category, config in CATEGORIES.items() if category != "holders_revenue"
-    }
+    try:
+        prices = _load_near_prices(normalized_root)
+    except Exception as exc:
+        print(f"protocol analytics: NEAR price unavailable; NEAR conversions will be empty: "
+              f"{type(exc).__name__}: {exc}")
+        prices = {}
+
+    results = {}
+    for category, config in CATEGORIES.items():
+        if category == "holders_revenue":
+            continue
+        try:
+            results[category] = _build_category(
+                category, config, normalized_root, output_root, prices,
+            )
+        except Exception as exc:
+            print(f"protocol analytics {category}: unavailable; writing an empty category snapshot: "
+                  f"{type(exc).__name__}: {exc}")
+            snapshot_path = write_empty_protocol_snapshot(output_root.parent, category)
+            results[category] = {"snapshot": snapshot_path}
     holders_dir = output_root.parent / "near_intents" / "holders_revenue"
     if holders_dir.exists():
         for stale_path in holders_dir.rglob("*.json"):
@@ -448,5 +464,6 @@ def build_protocol_analytics(
         old_dir.rmdir()
     for category, outputs in results.items():
         output_dir = next(iter(outputs.values())).parent
-        print(f"protocol analytics: {category} -> {len(outputs)} outputs in {output_dir}")
+        from console_ui import console
+        console.print(f"[green]OK[/green] Protocols · {category} [dim]({len(outputs)} outputs)[/dim]")
     return results

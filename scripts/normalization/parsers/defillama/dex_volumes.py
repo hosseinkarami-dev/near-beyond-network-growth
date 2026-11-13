@@ -1,6 +1,6 @@
 """Normalize the locally stored DefiLlama NEAR DEX volume response."""
 from datetime import datetime, timezone
-from common import SourceName, source_metadata
+from sources import SourceName, source_metadata
 
 
 def _document(metric_id, name, frequency, *, values=None, observations=None):

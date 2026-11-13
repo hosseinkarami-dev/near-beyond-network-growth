@@ -6,16 +6,16 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 
-from analytics.periods import period_bounds
-from common import PROJECT_ROOT
+from analytics.periods import CALENDAR_PERIODS, period_bounds
+from paths import ANALYTICS_DATA_DIR, NORMALIZED_DATA_DIR
 from validation import validate_json
 
 
-NORMALIZED_ROOT = PROJECT_ROOT / "data" / "normalized" / "defillama"
-ANALYTICS_DIR = PROJECT_ROOT / "data" / "analytics" / "near_intents"
+NORMALIZED_ROOT = NORMALIZED_DATA_DIR / "defillama"
+ANALYTICS_DIR = ANALYTICS_DATA_DIR / "near_intents"
 VOLUME_DIR = Path("near_intents_dex_volume")
 TVL_DIR = Path("near_intents")
-PERIODS = ("weekly", "monthly", "quarterly", "yearly")
+PERIODS = CALENDAR_PERIODS
 PROTOCOL_FLOWS = {
     "holders_revenue_usd": ("near_holders_revenue/daily_holders_revenue_breakdown.json", "protocols"),
     "revenue_usd": ("near_revenue/daily_protocol_revenue_breakdown.json", "values"),
@@ -415,6 +415,14 @@ def build_near_intents_analytics(
         }
         for day in all_dates
     ]
+    latest_capture_rate = next(
+        (item for item in reversed(daily_items) if item["revenue_capture_rate_30d_pct"] is not None),
+        None,
+    )
+    key_metrics["revenue_capture_rate_30d_pct"] = {
+        "value": latest_capture_rate["revenue_capture_rate_30d_pct"] if latest_capture_rate else None,
+        "date": latest_capture_rate["date"] if latest_capture_rate else None,
+    }
     snapshot = {
         "schema_version": "1.0.0",
         "network": "NEAR mainnet",
@@ -492,21 +500,27 @@ def build_near_intents_analytics(
         })
         outputs[f"{period}_tvl_by_token"] = path
 
-    chart_path = output_dir / "tvl_by_token_chart.json"
-    chart_periods = {}
     for period in ("daily", *PERIODS):
         items = _token_tvl_period_items(token_tvl, period, near_prices)
-        chart_periods[period] = [{
+        chart_items = [{
             "period": row.get("period", row.get("date")),
-            "tokens": {token: row.get("tokens", {}).get(token) for token in top_tokens},
-            "tokens_near": {token: row.get("tokens_near", {}).get(token) for token in top_tokens},
-            "other_usd": sum((Decimal(str(value)) for token, value in row.get("tokens", {}).items()
+            "tokens": {token: (row.get("tokens") or {}).get(token) for token in top_tokens},
+            "tokens_near": {token: (row.get("tokens_near") or {}).get(token) for token in top_tokens},
+            "other_usd": sum((Decimal(str(value)) for token, value in (row.get("tokens") or {}).items()
                               if token not in top_tokens and value is not None), Decimal(0)),
-            "other_near": sum((Decimal(str(value)) for token, value in row.get("tokens_near", {}).items()
+            "other_near": sum((Decimal(str(value)) for token, value in (row.get("tokens_near") or {}).items()
                                if token not in top_tokens and value is not None), Decimal(0)),
         } for row in items]
-    _write_json(chart_path, {"periods": chart_periods, "top_tokens": top_tokens})
-    outputs["tvl_by_token_chart"] = chart_path
+        chart_path = output_dir / f"{period}_tvl_by_token_chart.json"
+        _write_json(chart_path, {
+            "schema_version": "1.0.0",
+            "network": "NEAR mainnet",
+            "period": period,
+            "unit": "USD",
+            "units": {"tokens": "USD", "tokens_near": "NEAR"},
+            "items": chart_items,
+        })
+        outputs[f"{period}_tvl_by_token_chart"] = chart_path
 
     for period in PERIODS:
         path = output_dir / f"{period}_metrics.json"
@@ -558,11 +572,10 @@ def build_near_intents_analytics(
     })
     outputs["tvl_by_chain"] = chain_tvl_path
 
-    print(
-        "near intents analytics: "
-        f"volume dates={len(volume)}, TVL dates={len(tvl)}, token TVL dates={len(token_tvl)}, "
-        f"combined dates={len(daily_items)}"
+    from console_ui import console
+    console.print(
+        f"[green]OK[/green] NEAR Intents [dim]· {len(daily_items):,} combined days · "
+        f"volume {len(volume):,} · TVL {len(tvl):,} · token TVL {len(token_tvl):,} · "
+        f"{len(outputs)} outputs[/dim]"
     )
-    for name, path in outputs.items():
-        print(f"near intents analytics: wrote {name} -> {path}")
     return outputs

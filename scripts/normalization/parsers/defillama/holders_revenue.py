@@ -1,6 +1,6 @@
 """Normalize DefiLlama Holders Revenue data without deriving metrics."""
 from datetime import datetime, timezone
-from common import SourceName, source_metadata
+from sources import SourceName, source_metadata
 
 
 def _snake(key):

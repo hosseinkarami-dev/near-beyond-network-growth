@@ -1,7 +1,22 @@
 export type AnalyticsDocument = Record<string, any>
 
-export async function fetchAnalytics<T extends AnalyticsDocument = AnalyticsDocument>(path: string) {
-  return await $fetch<T>(`/data/analytics/${path}`)
+export function analyticsDataUrl(baseUrl: string, path: string) {
+  const base = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
+  const relativePath = path.startsWith('/') ? path.slice(1) : path
+  return `${base}/${relativePath}`
+}
+
+export async function fetchAnalytics<T extends AnalyticsDocument = AnalyticsDocument>(path: string, baseUrl: string) {
+  return await $fetch<T>(analyticsDataUrl(baseUrl, path))
+}
+
+export async function fetchAnalyticsOrEmpty(path: string, baseUrl: string) {
+  try {
+    return await fetchAnalytics(path, baseUrl)
+  }
+  catch {
+    return { schema_version: '1.0.0', data_status: 'unavailable' } as AnalyticsDocument
+  }
 }
 
 export function formatCompact(value: number | string | null | undefined, maximumFractionDigits = 1) {
@@ -25,6 +40,7 @@ export function formatCurrency(value: number | string | null | undefined, curren
 }
 
 export function formatPercent(value: number | string | null | undefined) {
+  if (value == null || value === '') return '—'
   const amount = Number(value)
   if (!Number.isFinite(amount)) return '—'
   return `${amount > 0 ? '+' : ''}${amount.toFixed(2)}%`
@@ -37,9 +53,18 @@ export function latest<T extends Record<string, any>>(rows: T[] | undefined, key
 export type ChartPoint = [string, number | null]
 export const MAX_TIME_SERIES_ITEMS = 365
 const lightModeChartColors: Record<string, string> = {
-  '#b4f273': '#4b7f24', '#79c8ee': '#2b789b', '#c3a5ff': '#7450b2',
-  '#f5c978': '#8b6018', '#ff8e84': '#b94b43', '#65d6b4': '#14785c',
-  '#9da8ff': '#5260b5', '#f49abd': '#a5456d', '#a7b0a2': '#687563', '#ff9f6e': '#b85320',
+  // Soft, low-saturation tones for white backgrounds. Dark theme keeps the
+  // brighter source colors; light theme reduces both saturation and weight.
+  '#b4f273': '#829873',
+  '#79c8ee': '#7699a8',
+  '#c3a5ff': '#9889ae',
+  '#f5c978': '#938662',
+  '#ff8e84': '#b7857f',
+  '#65d6b4': '#70998b',
+  '#9da8ff': '#818bae',
+  '#f49abd': '#aa8194',
+  '#a7b0a2': '#899187',
+  '#ff9f6e': '#a27d6e',
 }
 
 export function chartColorForTheme(color: string | undefined, isDark: boolean) {

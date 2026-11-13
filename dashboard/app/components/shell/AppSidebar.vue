@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  Activity, ArrowLeftRight, Blocks, Coins, LayoutDashboard, X,
+  Activity, ArrowLeftRight, Blocks, BookOpenCheck, Coins, LayoutDashboard, X,
 } from '@lucide/vue'
 
 defineProps<{ mobileOpen: boolean, mobileEnabled: boolean }>()
@@ -10,7 +10,10 @@ const route = useRoute()
 const groups = [
   {
     label: 'Overview',
-    links: [{ label: 'Dashboard', to: '/', icon: LayoutDashboard }],
+    links: [
+      { label: 'Dashboard', to: '/', icon: LayoutDashboard },
+      { label: 'Research & Methodology', to: '/research', icon: BookOpenCheck },
+    ],
   },
   {
     label: 'Analytics',
@@ -32,7 +35,7 @@ const groups = [
         <span class="brand-symbol">N</span>
         <span class="brand-copy">
           <strong>NEAR<span>scope</span></strong>
-          <small>NETWORK ANALYTICS</small>
+          <small>BEYOND NETWORK GROWTH</small>
         </span>
       </NuxtLink>
       <button v-if="mobileEnabled" class="icon-button mobile-close" aria-label="Close navigation" @click="$emit('close')">
@@ -59,12 +62,7 @@ const groups = [
 
     <div class="sidebar-bottom">
       <LiveNearPrice />
-      <div class="sidebar-note">
-        <div class="sidebar-note-icon"><Activity :size="16" /></div>
-        <div><strong>Network is healthy</strong><span>All systems operational</span></div>
-        <span class="network-status-dot" />
-      </div>
-      <span class="sidebar-version">NEARscope <span>·</span> Analytics workspace</span>
+      <span class="sidebar-version">NEAR Ecosystem Analytics &amp; Investment Research</span>
     </div>
   </aside>
 </template>

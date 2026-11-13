@@ -2,6 +2,9 @@
 
 from datetime import date, timedelta
 
+CALENDAR_PERIODS = ("weekly", "monthly", "quarterly", "yearly")
+CHART_PERIODS = ("daily", *CALENDAR_PERIODS)
+
 
 def period_bounds(day: date, period: str) -> tuple[str, date, date]:
     if period == "weekly":

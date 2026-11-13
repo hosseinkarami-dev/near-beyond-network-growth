@@ -7,7 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from common import RAW_DATA_DIR, SOURCES, SOURCES_BY_NAME, SourceProvider, SourceName, raw_path
+from paths import RAW_DATA_DIR
+from sources import SOURCES, SOURCES_BY_NAME, SourceProvider, SourceName, raw_path
 
 
 class SourceRegistryTests(unittest.TestCase):

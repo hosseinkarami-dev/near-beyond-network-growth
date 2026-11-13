@@ -2,7 +2,7 @@
 
 import math
 from datetime import datetime, timezone
-from common import SourceName, source_metadata
+from sources import SourceName, source_metadata
 
 
 def parse_near_intents_token_breakdown(data):

@@ -8,14 +8,14 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from common import PROJECT_ROOT
-from analytics.periods import period_bounds
+from analytics.periods import CALENDAR_PERIODS, period_bounds
+from paths import ANALYTICS_DATA_DIR, NORMALIZED_DATA_DIR
 from validation import validate_json
 
 
-NORMALIZED_ROOT = PROJECT_ROOT / "data" / "normalized"
-ANALYTICS_NETWORK_DIR = PROJECT_ROOT / "data" / "analytics" / "network"
-ANALYTICS_TOKENOMICS_DIR = PROJECT_ROOT / "data" / "analytics" / "tokenomics"
+NORMALIZED_ROOT = NORMALIZED_DATA_DIR
+ANALYTICS_NETWORK_DIR = ANALYTICS_DATA_DIR / "network"
+ANALYTICS_TOKENOMICS_DIR = ANALYTICS_DATA_DIR / "tokenomics"
 DAILY_OUTPUT = ANALYTICS_NETWORK_DIR / "daily_metrics.json"
 SNAPSHOT_OUTPUT = ANALYTICS_NETWORK_DIR / "snapshot.json"
 STABLECOIN_INPUT = "defillama/near_stablecoin/daily_stablecoin_market_data.json"
@@ -454,7 +454,7 @@ def _stablecoin_period_rows(
 
 
 FLOW_FIELDS = {"transactions", "transaction_fees_near", "transaction_fees_usd", "new_contracts"}
-PERIODS = ("weekly", "monthly", "quarterly", "yearly")
+PERIODS = CALENDAR_PERIODS
 
 
 def _periodic_network_rows(rows: list[dict[str, Any]], period: str) -> list[dict[str, Any]]:
@@ -613,21 +613,21 @@ def build_network_analytics(
         period_path = output_dir / f"{period}_metrics.json"
         period_path.write_text(validate_json(period_document), encoding="utf-8")
 
-    print(
-        "network analytics: "
-        f"dates before join={report['unique_dates_before_join']}, "
-        f"after inner join={report['dates_after_inner_join']}, "
-        f"excluded missing={report['records_excluded_due_to_missing_dates']}, "
-        f"excluded null={report['records_excluded_due_to_null_values']}, "
-        f"excluded invalid={report['records_excluded_due_to_invalid_values']}, "
-        f"final={report['records_after_join_and_validation']} "
-        f"({report['first_date']} to {report['last_date']})"
-    )
-    print(f"network analytics: wrote daily metrics -> {daily_path}")
-    print(f"network analytics: wrote snapshot -> {snapshot_path}")
-    print(f"network analytics: wrote stablecoin supply -> {stablecoin_path}")
-    for period, path in stablecoin_period_paths.items():
-        print(f"network analytics: wrote {period} stablecoin supply -> {path}")
+    from console_ui import console
+    from rich.table import Table
+
+    table = Table(title="Network analytics", show_header=False, box=None, padding=(0, 1))
+    table.add_column("Metric", style="dim")
+    table.add_column("Value", style="bold")
+    table.add_row("Joined daily observations", f"{report['records_after_join_and_validation']:,}")
+    table.add_row("Coverage", f"{report['first_date']} to {report['last_date']}")
+    table.add_row("Excluded dates / null / invalid", (
+        f"{report['records_excluded_due_to_missing_dates']:,} / "
+        f"{report['records_excluded_due_to_null_values']:,} / "
+        f"{report['records_excluded_due_to_invalid_values']:,}"
+    ))
+    console.print(table)
+    console.print(f"[green]OK[/green] Network outputs ready [dim](daily + snapshot + {len(stablecoin_period_paths) + 1} stablecoin series)[/dim]")
     return {
         "daily": daily_path,
         "snapshot": snapshot_path,

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ArrowDownRight, ArrowUpRight } from '@lucide/vue'
+import { analyticsDataUrl } from '~/composables/useAnalytics'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 type BinanceTicker = { e?: string, s?: string, c?: string, P?: string, E?: number }
@@ -10,6 +11,7 @@ const STREAM_URLS = [
   'wss://data-stream.binance.vision/ws/nearusdt@ticker',
 ]
 const REST_URL = 'https://data-api.binance.vision/api/v3/ticker/24hr?symbol=NEARUSDT'
+const analyticsBaseUrl = useRuntimeConfig().public.analyticsBaseUrl as string
 const price = ref<number | null>(null)
 const change24h = ref<number | null>(null)
 const state = ref<ConnectionState>('connecting')
@@ -123,7 +125,7 @@ function startRestFallback() {
 
 async function loadFallback() {
   try {
-    const response = await fetch('/data/analytics/tokenomics/snapshot.json', { cache: 'no-cache' })
+    const response = await fetch(analyticsDataUrl(analyticsBaseUrl, 'tokenomics/snapshot.json'), { cache: 'no-cache' })
     if (!response.ok) return
     const document = await response.json()
     const current = Number(document?.metrics?.near_price?.value)

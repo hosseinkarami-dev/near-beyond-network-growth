@@ -26,12 +26,17 @@ from normalization.parsers.nearblocks.network_stats import (
     parse_tokenomics_summary,
 )
 from normalization.parsers.nearblocks.txn_stats import parse_txn_stats
+from normalization.parsers.nearblocks.validators import parse_validators
+from normalization.parsers.nearblocks.validators_info import parse_validators_info
 from normalization.parsers.bigquery.daily_supply import parse_daily_supply
 from normalization.parsers.bigquery.daily_flows import (
-    parse_daily_contract_rewards,
+    parse_contract_reward_event_audit,
     parse_daily_gross_burn,
 )
-from common import SOURCES, SourceName, raw_path
+from normalization.parsers.bigquery.buyback_transfers import parse_buyback_transfers
+from normalization.parsers.fastnear.validator_stake import parse_daily_active_validator_stake
+from normalization.parsers.fastnear.buyback_balance import parse_buyback_wallet_balance
+from sources import SOURCES, SourceName, raw_path
 from normalization.registry import NORMALIZED_DATA_DIR, PARSER_REGISTRATIONS
 
 
@@ -56,6 +61,26 @@ def stats_fixture():
 
 def tokenomics_fixture():
     return {"data": {"total_supply": "1000000000000000000000001"}}
+
+
+def validators_info_fixture():
+    return {"data": {
+        "current_validators_count": 1,
+        "total_stake": "1000000000000000000000000",
+        "total_validators_count": 2,
+    }}
+
+
+def validators_fixture():
+    return {"pages": [{"data": [
+        {"account_id": "alpha.poolv1.near", "status": "Active",
+         "stake": "1000000000000000000000000", "fee": "10%",
+         "delegators": 3, "blocks_produced": 99, "blocks_expected": 100},
+    ]}, {"data": [
+        {"account_id": "beta.poolv1.near", "status": "Inactive",
+         "stake": "500000000000000000000000", "fee": "5%",
+         "delegators": 1, "blocks_produced": 49, "blocks_expected": 50},
+    ]}]}
 
 
 def daily_supply_fixture():
@@ -176,13 +201,38 @@ class RegisteredParserContractTests(unittest.TestCase):
             parse_txn_stats: (txn_fixture(), {"daily_transactions.json", "daily_transaction_fees.json"}),
             parse_network_stats: (stats_fixture(), {"summary.json"}),
             parse_tokenomics_summary: (tokenomics_fixture(), {"summary.json"}),
+            parse_validators_info: (validators_info_fixture(), {"summary.json"}),
+            parse_validators: (validators_fixture(), {"validators.json"}),
             parse_daily_supply: (daily_supply_fixture(), {"daily_supply.json"}),
             parse_daily_gross_burn: ([{"utc_date": "2024-01-01",
                                       "gross_tokens_burnt_near": Decimal("0.25")}],
                                      {"daily_gross_burn.json"}),
-            parse_daily_contract_rewards: ([{"utc_date": "2024-01-01",
-                                             "contract_rewards_near": Decimal("0.5")}],
-                                           {"daily_contract_rewards.json"}),
+            parse_contract_reward_event_audit: ({
+                "complete": True,
+                "query_range": {"start_date": "2024-01-01", "end_date": "2024-01-01"},
+                "items": [{"utc_date": "2024-01-01", "total_reward_events": 1,
+                           "valid_reward_events": 1, "missing_previous_balance": 0,
+                           "ambiguous_order": 0, "non_positive_delta": 0,
+                           "event_count_coverage_pct": Decimal("100"),
+                           "contract_rewards_near": Decimal("0.5")}],
+            }, {"contract_reward_event_audit.json"}),
+            parse_buyback_transfers: ([{
+                "utc_date": "2026-11-01", "sender": "intents.near",
+                "transfer_type": "intents_transfer", "native_inflow_near": Decimal("1"),
+                "wrapped_inflow_near": Decimal("0"), "total_inflow_near": Decimal("1"),
+                "native_transfer_count": 1, "wrapped_transfer_count": 0,
+                "total_transfer_count": 1,
+            }], {"daily_buyback_transfers.json"}),
+            parse_daily_active_validator_stake: ({"items": [{
+                "utc_date": "2026-11-01", "block_height": 100,
+                "total_active_stake_yocto": "1000000000000000000000000",
+            }]}, {"daily_active_validator_stake.json"}),
+            parse_buyback_wallet_balance: ({
+                "account_id": "buybacks.multisignature.near",
+                "amount_yocto": "1000000000000000000000000",
+                "locked_yocto": "0", "block_height": 100,
+                "snapshot_date": "2026-11-01", "updated_at": "2026-11-01T00:00:00Z",
+            }, {"buyback_wallet_balance.json"}),
             parse_historical_chain_tvl: (tvl_chain_fixture(), {"tvl_usd.json"}),
             parse_fees: (overview_fixture(), {"summary.json", "daily_protocol_fees1.json",
                                                "daily_protocol_fees_breakdown.json",
@@ -206,7 +256,7 @@ class RegisteredParserContractTests(unittest.TestCase):
             parse_binance_nearusdt_daily_klines: (binance_kline_fixture(),
                                                    {"nearusdt_1d_close_price.json"}),
         }
-        self.assertEqual(len(PARSER_REGISTRATIONS), 17)
+        self.assertEqual(len(PARSER_REGISTRATIONS), 22)
         self.assertEqual({registration.parser for registration in PARSER_REGISTRATIONS}, set(fixtures))
         for registration in PARSER_REGISTRATIONS:
             raw, expected_names = fixtures[registration.parser]

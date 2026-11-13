@@ -1,6 +1,6 @@
 """Parsers for NearBlocks address statistics."""
 from datetime import date, datetime, time, timezone
-from common import SourceName, source_metadata
+from sources import SourceName, source_metadata
 
 
 def parse_address_statistics(raw_data):

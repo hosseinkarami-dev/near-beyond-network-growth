@@ -25,11 +25,16 @@ watch(currencies, (values) => {
   if (!values.includes(selectedCurrency.value)) selectedCurrency.value = values[0] ?? 'USD'
 }, { immediate: true })
 const series = computed(() => props.datasets[selectedPeriod.value]?.[selectedCurrency.value] ?? [])
+const visibleSeries = computed(() => selectedPeriod.value === 'daily'
+  ? series.value.map((item) => item.type === 'pie'
+    ? item
+    : { ...item, data: (item.data as [string, number | null][]).slice(-180) })
+  : series.value)
 const hasPie = computed(() => series.value.some((item) => item.type === 'pie'))
 const hasData = computed(() => series.value.some((item) => Array.isArray(item.data) && item.data.length > 0))
 const chartReady = ref(false)
 
-watch([selectedPeriod, selectedCurrency, series], () => {
+watch([selectedPeriod, selectedCurrency, visibleSeries], () => {
   chartReady.value = false
 })
 </script>
@@ -49,7 +54,7 @@ watch([selectedPeriod, selectedCurrency, series], () => {
     </header>
     <div class="chart-body" :class="{ 'chart-body-compact': compact }">
       <div v-if="hasData" class="chart-render-stage">
-        <ChartCanvas :class="{ 'chart-canvas-ready': chartReady }" :series="series" :height="height" :pie="hasPie" @ready="chartReady = true" />
+        <ChartCanvas :class="{ 'chart-canvas-ready': chartReady }" :series="visibleSeries" :height="height" :pie="hasPie" @ready="chartReady = true" />
         <Transition name="chart-skeleton">
           <div v-if="!chartReady" class="chart-skeleton" :style="{ height: `${height}px` }" aria-label="Loading chart">
             <div class="skeleton-legend"><i /><span /><i /><span /></div>

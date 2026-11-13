@@ -10,8 +10,10 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-import common
-from common import SOURCES, SourceName, fetch_json, raw_path
+import paths
+import fetch as fetching
+from sources import SOURCES, SourceName, raw_path
+from fetch import fetch_json
 from normalization.parsers.defillama.stablecoin_charts import parse_stablecoin_charts
 from normalization.registry import NORMALIZED_DATA_DIR, PARSER_REGISTRATIONS
 
@@ -106,8 +108,8 @@ class StablecoinChartsTests(unittest.TestCase):
                 return payload
 
         with tempfile.TemporaryDirectory() as temp, \
-                patch.object(common, "RAW_DATA_DIR", Path(temp)), \
-                patch.object(common, "urlopen", return_value=Response()):
+                patch.object(paths, "RAW_DATA_DIR", Path(temp)), \
+                patch.object(fetching, "urlopen", return_value=Response()):
             self.assertTrue(fetch_json(source))
             self.assertEqual(raw_path(source).read_bytes(), payload)
 

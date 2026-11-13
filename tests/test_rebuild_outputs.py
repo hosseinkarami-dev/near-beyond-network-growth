@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import build_analytics
 import normalize
 from normalization.registry import ParserRegistration
-from common import SourceName
+from sources import SourceName
 
 
 class RebuildOutputTests(unittest.TestCase):
@@ -37,7 +37,7 @@ class RebuildOutputTests(unittest.TestCase):
                 normalized_directory=normalized_root / "nearblocks",
             )
             with (
-                patch.object(normalize, "PROJECT_ROOT", project_root),
+                patch.object(normalize, "DATA_ROOT", project_root / "data"),
                 patch.object(normalize, "NORMALIZED_DATA_DIR", normalized_root),
                 patch.object(normalize, "PARSER_REGISTRATIONS", (registration,)),
                 patch.object(normalize, "raw_path", return_value=raw_file),
@@ -67,7 +67,7 @@ class RebuildOutputTests(unittest.TestCase):
                 return build
 
             with (
-                patch.object(build_analytics, "PROJECT_ROOT", project_root),
+                patch.object(build_analytics, "DATA_ROOT", project_root / "data"),
                 patch.object(build_analytics, "ANALYTICS_ROOT", analytics_root),
                 patch.object(build_analytics, "build_network_analytics", write_output("network/daily.json")),
                 patch.object(build_analytics, "build_tokenomics_analytics", write_output("tokenomics/daily.json")),

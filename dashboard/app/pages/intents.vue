@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import { Activity, CalendarDays, History, Layers3, TrendingUp, Wallet, Coins, ChartNoAxesCombined } from '@lucide/vue'
-import { formatCurrency, formatPercent, makeCurrencySeries, makeSeries } from '~/composables/useAnalytics'
+import { fetchAnalyticsOrEmpty, formatCurrency, formatPercent, makeCurrencySeries, makeSeries } from '~/composables/useAnalytics'
+const analyticsBaseUrl = useRuntimeConfig().public.analyticsBaseUrl as string
 
 const periods = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly']
 const tokenPeriods = ['daily', ...periods.filter((period) => period !== 'daily')]
 const { data, pending, error, refresh } = await useAsyncData('intents-analytics', async () => {
   const paths = [
     'dashboard.json', 'near_intents/snapshot.json', 'near_intents/tvl_by_chain.json',
-    'near_intents/current_tvl_by_token.json', 'near_intents/tvl_by_token_chart.json',
+    'near_intents/current_tvl_by_token.json',
     ...periods.map((period) => `near_intents/${period}_metrics.json`),
     ...tokenPeriods.map((period) => `near_intents/${period}_tvl_by_token.json`),
+    ...tokenPeriods.map((period) => `near_intents/${period}_tvl_by_token_chart.json`),
   ]
-  const docs = await Promise.all(paths.map((path) => $fetch<any>(`/data/analytics/${path}`)))
+  const docs = await Promise.all(paths.map((path) => fetchAnalyticsOrEmpty(path, analyticsBaseUrl)))
   return Object.fromEntries(paths.map((path, index) => [path, docs[index]]))
 }, { server: false })
 const snapshot = computed(() => data.value?.['near_intents/snapshot.json'])
@@ -30,7 +32,9 @@ const valueCaptureChart = computed(() => makeSeries(metricDocuments.value, [
   { key: 'gross_fees_usd', label: 'Gross Fees', type: 'line', color: '#ff9f6e' },
   { key: 'revenue_usd', label: 'Revenue', type: 'line', color: '#f5c978' },
   { key: 'holders_revenue_usd', label: 'Holders revenue', type: 'line', color: '#c3a5ff' },
-  { key: 'revenue_capture_rate_30d_pct', label: '30-Day Revenue Capture Rate', type: 'line', color: '#79c8ee', axis: 1, valueFormat: 'percent' },
+]))
+const revenueCaptureRateChart = computed(() => makeSeries(metricDocuments.value, [
+  { key: 'revenue_capture_rate_30d_pct', label: '30-Day Revenue Capture Rate', type: 'line', color: '#79c8ee', valueFormat: 'percent' },
 ]))
 const keyMetrics = computed(() => snapshot.value?.key_metrics ?? {})
 const metricChange = (value: unknown) => value == null ? undefined : formatPercent(value as number | string)
@@ -42,10 +46,9 @@ const currentTokenDistribution = computed(() => {
   } }
 })
 const tokenChart = computed(() => {
-  const docs = data.value?.['near_intents/tvl_by_token_chart.json']?.periods ?? {}
   const colors = ['#b4f273', '#79c8ee', '#c3a5ff', '#f5c978', '#ff8e84', '#65d6b4', '#9da8ff', '#f49abd']
   return Object.fromEntries(tokenPeriods.map((period) => {
-    const rows = docs[period] ?? []
+    const rows = data.value?.[`near_intents/${period}_tvl_by_token_chart.json`]?.items ?? []
     const make = (field: 'tokens' | 'tokens_near', other: 'other_usd' | 'other_near') => [
       ...(data.value?.['near_intents/current_tvl_by_token.json']?.top_tokens ?? []).map((token: string, index: number) => ({
         name: token, type: 'line' as const, color: colors[index]!,
@@ -89,12 +92,15 @@ const chainTotal = computed(() => data.value?.['near_intents/tvl_by_chain.json']
       <div><h2>Fees &amp; revenue trends</h2><p>Gross fees, retained revenue, and value attributed to holders · USD</p></div>
     </div>
     <div class="overview-grid intents-metric-chart-layout intents-chart-row">
-      <AnalyticsChart title="NEAR Intents value capture" subtitle="Gross Fees, Revenue, Holders revenue, and 30-day capture rate" :datasets="valueCaptureChart" initial-period="daily" :height="390" :methodology="[methodologies?.near_intents?.gross_fees, methodologies?.near_intents?.revenue, methodologies?.near_intents?.holders_revenue, methodologies?.near_intents?.revenue_capture_rate_30d].filter(Boolean)" />
+      <AnalyticsChart title="NEAR Intents fees and revenue" subtitle="Gross fees, protocol revenue, and holders revenue · USD" :datasets="valueCaptureChart" initial-period="daily" :height="390" :methodology="[methodologies?.near_intents?.gross_fees, methodologies?.near_intents?.revenue, methodologies?.near_intents?.holders_revenue].filter(Boolean)" />
       <div class="metric-grid intents-chart-metrics">
         <MetricCard label="Gross Fees · 7d" :value="formatCurrency(keyMetrics.gross_fees_usd?.total_7d, 'USD', 1)" :change="metricChange(keyMetrics.gross_fees_usd?.change_7d_pct)" :change-label="keyMetrics.gross_fees_usd?.change_7d_pct == null ? '' : 'vs. previous 7d'" :icon="Coins" tone="amber" body-align="center" value-size="large" mobile-body-align="left" />
         <MetricCard label="Revenue · 7d" :value="formatCurrency(keyMetrics.revenue_usd?.total_7d, 'USD', 1)" :change="metricChange(keyMetrics.revenue_usd?.change_7d_pct)" :change-label="keyMetrics.revenue_usd?.change_7d_pct == null ? '' : 'vs. previous 7d'" :icon="ChartNoAxesCombined" tone="green" body-align="center" value-size="large" mobile-body-align="left" />
         <MetricCard label="Holders revenue · 7d" :value="formatCurrency(keyMetrics.holders_revenue_usd?.total_7d, 'USD', 1)" :change="metricChange(keyMetrics.holders_revenue_usd?.change_7d_pct)" :change-label="keyMetrics.holders_revenue_usd?.change_7d_pct == null ? '' : 'vs. previous 7d'" :icon="Wallet" tone="violet" body-align="center" value-size="large" mobile-body-align="left" />
       </div>
+    </div>
+    <div class="overview-grid intents-token-grid">
+      <AnalyticsChart title="30-Day Revenue Capture Rate" subtitle="Trailing 30-day revenue as a share of gross fees · %" :datasets="revenueCaptureRateChart" initial-period="daily" :height="300" :methodology="methodologies?.near_intents?.revenue_capture_rate_30d" />
     </div>
     <div class="section-title-row intents-section-title">
       <div><h2>TVL overview</h2><p>Historical period-end value across supported chains · USD or NEAR</p></div>

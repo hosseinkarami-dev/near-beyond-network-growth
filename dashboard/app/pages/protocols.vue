@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Activity, CalendarDays, Coins, Layers3, TrendingUp } from '@lucide/vue'
-import { formatCurrency, formatPercent } from '~/composables/useAnalytics'
+import { fetchAnalyticsOrEmpty, formatCurrency, formatPercent } from '~/composables/useAnalytics'
+const analyticsBaseUrl = useRuntimeConfig().public.analyticsBaseUrl as string
 
 const periods = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly']
 const categories = [
@@ -22,7 +23,7 @@ const { data, pending, error, refresh } = await useAsyncData('protocol-analytics
     ...periods.map((period) => `protocols/${item.folder}/${period}_metrics.json`),
   ])
   const allPaths = ['dashboard.json', ...paths]
-  const docs = await Promise.all(allPaths.map((path) => $fetch<any>(`/data/analytics/${path}`)))
+  const docs = await Promise.all(allPaths.map((path) => fetchAnalyticsOrEmpty(path, analyticsBaseUrl)))
   return Object.fromEntries(allPaths.map((path, index) => [path, docs[index]]))
 }, { server: false })
 

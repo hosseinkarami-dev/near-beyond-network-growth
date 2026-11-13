@@ -6,22 +6,31 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, localcontext
 from pathlib import Path
 from typing import Any
 
-from common import PROJECT_ROOT
-from analytics.periods import period_bounds
+from analytics.periods import CALENDAR_PERIODS, CHART_PERIODS, period_bounds
+from analytics.tokenomics_burn import (
+    PROTOCOL_V87_ZERO_REWARDS_FROM,
+    build_burn_analytics,
+)
+from analytics.tokenomics_issuance import build_issuance_analytics
+from analytics.tokenomics_buybacks import add_buyback_analytics
+from analytics.validators import build_validator_analytics
+from paths import ANALYTICS_DATA_DIR, NORMALIZED_DATA_DIR
+from units import YOCTO_PER_NEAR
 from validation import validate_json
 
 
-NORMALIZED_ROOT = PROJECT_ROOT / "data" / "normalized"
-ANALYTICS_TOKENOMICS_DIR = PROJECT_ROOT / "data" / "analytics" / "tokenomics"
+NORMALIZED_ROOT = NORMALIZED_DATA_DIR
+ANALYTICS_TOKENOMICS_DIR = ANALYTICS_DATA_DIR / "tokenomics"
 TOKENOMICS_STATS_PATH = Path("nearblocks/stats/tokenomics/summary.json")
+VALIDATORS_INFO_PATH = Path("nearblocks/validators/summary.json")
+VALIDATORS_LIST_PATH = Path("nearblocks/validators/validators.json")
 PRICE_HISTORY_PATH = Path("binance/near_price/nearusdt_1d_close_price.json")
 DAILY_SUPPLY_PATH = Path("bigquery/daily_supply.json")
 DAILY_GROSS_BURN_PATH = Path("bigquery/daily_gross_burn.json")
-DAILY_CONTRACT_REWARDS_PATH = Path("bigquery/daily_contract_rewards.json")
-SUPPLY_PERIODS = ("weekly", "monthly", "quarterly", "yearly")
-CHART_PERIODS = ("daily", "weekly", "monthly", "quarterly", "yearly")
+CONTRACT_REWARD_EVENT_AUDIT_PATH = Path("bigquery/contract_reward_event_audit.json")
+DAILY_ACTIVE_VALIDATOR_STAKE_PATH = Path("fastnear/validators/daily_active_validator_stake.json")
+SUPPLY_PERIODS = CALENDAR_PERIODS
 PRICE_METRIC_QUANTUM = Decimal("0.00000001")
-FLOW_PERIOD_DAYS = (30, 90, 365)
 
 
 def _read_json(path: Path) -> Any:
@@ -68,6 +77,40 @@ def _load_daily_prices(path: Path) -> dict[date, Decimal]:
     if not prices:
         raise ValueError(f"{path.name} contains no price observations")
     return dict(sorted(prices.items()))
+
+
+def _load_daily_active_validator_stake(path: Path) -> dict[date, dict[str, Any]]:
+    """Convert normalized exact YoctoNEAR daily stake totals to NEAR."""
+    document = _read_json(path)
+    if not isinstance(document, dict) or not isinstance(document.get("items"), list):
+        raise ValueError(f"{path.name} must be a normalized document with items")
+
+    observations: dict[date, dict[str, Any]] = {}
+    for index, item in enumerate(document["items"]):
+        if not isinstance(item, dict):
+            raise ValueError(f"{path.name} item {index} must be an object")
+        try:
+            date_text = item["date"]
+            day = date.fromisoformat(date_text)
+            total_stake_text = item["total_active_stake_yocto"]
+            block_height = int(item["block_height"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"{path.name} item {index} is missing date, height, or validators") from exc
+        if day.isoformat() != date_text or day in observations:
+            raise ValueError(f"{path.name} item {index} has an invalid or duplicate date")
+        if not isinstance(total_stake_text, str) or not total_stake_text.isdigit():
+            raise ValueError(f"{path.name} item {index} total stake must be an integer string")
+        total_stake_yocto = int(total_stake_text)
+
+        with localcontext() as context:
+            context.prec = 50
+            total_stake_near = Decimal(total_stake_yocto) / Decimal(YOCTO_PER_NEAR)
+        observations[day] = {
+            "block_height": block_height,
+            "total_active_stake_yocto": str(total_stake_yocto),
+            "total_active_stake_near": total_stake_near,
+        }
+    return dict(sorted(observations.items()))
 
 
 def _price_rows(prices: dict[date, Decimal]) -> list[dict[str, Any]]:
@@ -154,74 +197,32 @@ def _load_daily_flow(path: Path, field: str) -> tuple[dict[date, Decimal], dict[
     return dict(sorted(observations.items())), source if isinstance(source, dict) else {}
 
 
+def _load_contract_reward_audit(
+    path: Path,
+) -> tuple[dict[date, Decimal], tuple[date, date] | None]:
+    """Load audited rewards and the full query window used to establish zeroes."""
+
+    document = _read_json(path)
+    query_range = document.get("query_range") if isinstance(document, dict) else None
+    if not isinstance(query_range, dict):
+        raise ValueError(f"{path.name} must declare its complete query_range")
+    try:
+        start = date.fromisoformat(query_range["start_date"])
+        end = date.fromisoformat(query_range["end_date"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f"{path.name} has an invalid query_range") from exc
+    if start > end:
+        raise ValueError(f"{path.name} query_range start is after its end")
+    rewards, _ = _load_daily_flow(path, "contract_rewards_near")
+    if any(day < start or day > end for day in rewards):
+        raise ValueError(f"{path.name} contains observations outside its query_range")
+    return rewards, (start, end)
+
+
 def _ratio_pct(numerator: Decimal | None, denominator: Decimal | None) -> Decimal | None:
     if numerator is None or denominator is None or denominator <= 0:
         return None
     return numerator / denominator * Decimal(100)
-
-
-def _period_supply_metrics(
-    supplies: dict[date, dict[str, Decimal | None]],
-    daily_rows: dict[date, dict[str, Decimal | None]],
-    gross_burn: dict[date, Decimal],
-    days: int,
-) -> dict[str, Decimal | int | None]:
-    """Calculate calendar-day window metrics ending at the latest supply date."""
-
-    output: dict[str, Decimal | int | None] = {}
-    if not supplies:
-        return output
-    end_date = next(reversed(supplies))
-    start_date = end_date - timedelta(days=days)
-    start_supply = supplies.get(start_date, {}).get("total_supply")
-    end_supply = supplies[end_date].get("total_supply")
-    change = end_supply - start_supply if start_supply is not None and end_supply is not None else None
-    growth = _ratio_pct(change, start_supply)
-    annualized = None
-    if start_supply is not None and end_supply is not None and start_supply > 0 and end_supply >= 0:
-        with localcontext() as context:
-            context.prec = 50
-            annualized = ((end_supply / start_supply) ** (Decimal(365) / Decimal(days)) - 1) * 100
-    output.update(
-        net_supply_change_near=change,
-        net_supply_growth_pct=growth,
-        net_inflation_annualized_pct=annualized,
-    )
-
-    interval_dates = [start_date + timedelta(days=offset) for offset in range(1, days + 1)]
-    daily_changes = [daily_rows.get(day, {}).get("daily_net_supply_change_near") for day in interval_dates]
-    output["deflationary_days"] = (
-        sum(1 for value in daily_changes if value is not None and value < 0)
-        if all(value is not None for value in daily_changes) else None
-    )
-
-    burn_values = [gross_burn.get(day) for day in interval_dates]
-    burn_total = sum(burn_values, Decimal(0)) if all(value is not None for value in burn_values) else None
-    issuance_values = [daily_rows.get(day, {}).get("gross_issuance_near") for day in interval_dates]
-    issuance_total = (
-        sum(issuance_values, Decimal(0))
-        if all(value is not None for value in issuance_values) else None
-    )
-    output["gross_burn_near"] = burn_total
-    output["gross_issuance_near"] = issuance_total
-    output["gross_issuance_pct"] = _ratio_pct(issuance_total, start_supply)
-    issuance_rate = output["gross_issuance_pct"]
-    output["gross_issuance_annualized_pct"] = (
-        issuance_rate * Decimal(365) / Decimal(days) if issuance_rate is not None else None
-    )
-    output["burn_offset_pct"] = _ratio_pct(burn_total, issuance_total)
-    return output
-
-
-def _contract_rewards_totals(
-    observations: dict[date, Decimal], days: int,
-) -> Decimal | None:
-    if not observations:
-        return None
-    end_date = next(reversed(observations))
-    start_date = end_date - timedelta(days=days - 1)
-    values = [observations.get(start_date + timedelta(days=offset)) for offset in range(days)]
-    return sum(values, Decimal(0)) if all(value is not None for value in values) else None
 
 
 def _supply_period_rows(
@@ -247,10 +248,46 @@ def _supply_period_rows(
     return items
 
 
+def _stake_supply_period_rows(
+    observations: list[dict[str, Any]], period: str,
+) -> list[dict[str, Any]]:
+    """Return period-end snapshots; stake and supply are never summed over time."""
+    if period == "daily":
+        return [
+            {
+                "period": row["date"],
+                "period_start": row["date"],
+                "period_end": row["date"],
+                **row,
+            }
+            for row in observations
+        ]
+
+    groups: dict[str, list[tuple[date, date, date, dict[str, Any]]]] = {}
+    for row in observations:
+        day = date.fromisoformat(row["date"])
+        key, start, end = period_bounds(day, period)
+        groups.setdefault(key, []).append((day, start, end, row))
+
+    items = []
+    for key in sorted(groups):
+        last_day, start, end, last_row = groups[key][-1]
+        items.append({
+            "period": key,
+            "period_start": start.isoformat(),
+            "period_end": end.isoformat(),
+            "date": last_day.isoformat(),
+            "total_active_stake_near": last_row["total_active_stake_near"],
+            "total_supply": last_row["total_supply"],
+            "staking_ratio_pct": last_row["staking_ratio_pct"],
+        })
+    return items
+
+
 def _tokenomics_period_series(
-    daily_rows: dict[date, dict[str, Decimal | None]], prices: dict[date, Decimal],
+    daily_rows: dict[date, dict[str, Decimal | None]],
 ) -> dict[str, list[dict[str, Any]]]:
-    """Precompute bounded chart buckets so the dashboard only renders values."""
+    """Aggregate supply and inflation only; burn and issuance have own datasets."""
     output: dict[str, list[dict[str, Any]]] = {}
     recent_days = list(daily_rows)[-365:]
     for period in CHART_PERIODS:
@@ -260,30 +297,10 @@ def _tokenomics_period_series(
             groups.setdefault(key, []).append((day, daily_rows[day]))
         items = []
         for key, rows in groups.items():
-            net_values = [row.get("net_issuance_near") for _, row in rows]
-            gross_values = [row.get("gross_issuance_near") for _, row in rows]
-            burn_values = [row.get("net_burn_near") for _, row in rows]
-            reward_values = [row.get("contract_rewards_near") for _, row in rows]
-            reward_usd_values = [row.get("contract_rewards_usd") for _, row in rows]
-            burn_usd_values = [row.get("token_burn_usd") for _, row in rows]
-            issuance_usd_values = [row.get("estimated_gross_issuance_usd") for _, row in rows]
-            usd_values = [row.get("net_burn_near") * prices[day]
-                          for day, row in rows if row.get("net_burn_near") is not None and day in prices]
             items.append({
                 "period": key,
                 "date": rows[-1][0].isoformat(),
-                "net_issuance_near": sum(net_values, Decimal(0)) if all(v is not None for v in net_values) else None,
-                "gross_issuance_near": sum(gross_values, Decimal(0)) if all(v is not None for v in gross_values) else None,
-                "net_burn_near": sum(burn_values, Decimal(0)) if all(v is not None for v in burn_values) else None,
-                "contract_rewards_near": sum(reward_values, Decimal(0)) if all(v is not None for v in reward_values) else None,
-                "contract_rewards_usd": sum(reward_usd_values, Decimal(0)) if all(v is not None for v in reward_usd_values) else None,
-                "net_burn_usd": sum(usd_values, Decimal(0)) if len(usd_values) == len(rows) else None,
-                "token_burn_usd": sum(burn_usd_values, Decimal(0)) if all(v is not None for v in burn_usd_values) else None,
-                "estimated_gross_issuance_usd": sum(issuance_usd_values, Decimal(0)) if all(v is not None for v in issuance_usd_values) else None,
-                "burn_rate_pct": _ratio_pct(
-                    sum(burn_usd_values, Decimal(0)) if all(v is not None for v in burn_usd_values) else None,
-                    sum(issuance_usd_values, Decimal(0)) if all(v is not None for v in issuance_usd_values) else None,
-                ),
+                "daily_net_inflation_pct": rows[-1][1].get("daily_net_inflation_pct"),
                 "net_inflation_30d_annualized_pct": rows[-1][1].get("net_inflation_30d_annualized_pct"),
             })
         output[period] = items
@@ -293,8 +310,6 @@ def _tokenomics_period_series(
 def build_tokenomics_analytics(
     normalized_root: Path = NORMALIZED_ROOT,
     output_dir: Path = ANALYTICS_TOKENOMICS_DIR,
-    *,
-    include_synthetic_demo: bool = False,
 ) -> Path:
     """Build Tokenomics outputs exclusively from normalized datasets."""
 
@@ -303,15 +318,27 @@ def build_tokenomics_analytics(
     prices = _load_daily_prices(normalized_root / PRICE_HISTORY_PATH)
     price_rows = _price_rows(prices)
     supplies = _load_daily_supply(normalized_root / DAILY_SUPPLY_PATH)
+    validator_stake_path = normalized_root / DAILY_ACTIVE_VALIDATOR_STAKE_PATH
+    validator_stake_status = "unavailable"
+    try:
+        daily_active_validator_stake = (
+            _load_daily_active_validator_stake(validator_stake_path)
+            if validator_stake_path.exists() else {}
+        )
+        if daily_active_validator_stake:
+            validator_stake_status = "observed_exact_yoctoNEAR"
+    except Exception as exc:
+        print(f"tokenomics daily active validator stake: unavailable; {type(exc).__name__}: {exc}")
+        daily_active_validator_stake = {}
     gross_burn_path = normalized_root / DAILY_GROSS_BURN_PATH
     gross_burn, gross_burn_source = (
         _load_daily_flow(gross_burn_path, "gross_tokens_burnt_near")
         if gross_burn_path.exists() else ({}, {})
     )
-    contract_rewards_path = normalized_root / DAILY_CONTRACT_REWARDS_PATH
-    contract_rewards, contract_rewards_source = (
-        _load_daily_flow(contract_rewards_path, "contract_rewards_near")
-        if contract_rewards_path.exists() else ({}, {})
+    contract_rewards_path = normalized_root / CONTRACT_REWARD_EVENT_AUDIT_PATH
+    contract_rewards, contract_reward_audit_range = (
+        _load_contract_reward_audit(contract_rewards_path)
+        if contract_rewards_path.exists() else ({}, None)
     )
     tokenomics_path = normalized_root / TOKENOMICS_STATS_PATH
     tokenomics_summary = _read_json(tokenomics_path)
@@ -341,6 +368,39 @@ def build_tokenomics_analytics(
         circulating, latest_supply["total_supply"]
     )
 
+    metrics.update({
+        "total_staked": None,
+        "current_validators_count": None,
+        "total_validators_count": None,
+    })
+    validators_summary_metrics = {}
+    validators_path = normalized_root / VALIDATORS_INFO_PATH
+    if validators_path.exists():
+        validators_summary = _read_json(validators_path)
+        validators_summary_metrics = validators_summary.get("metrics")
+        if not isinstance(validators_summary_metrics, dict):
+            raise ValueError("validator summary metrics must be an object")
+        for field in ("total_staked", "current_validators_count", "total_validators_count"):
+            metric = validators_summary_metrics.get(field)
+            value = metric.get("value") if isinstance(metric, dict) else None
+            metrics[field] = value
+    total_active_stake = metrics.get("total_staked")
+    total_active_stake = Decimal(str(total_active_stake)) if total_active_stake is not None else None
+    current_validators = metrics.get("current_validators_count")
+    validator_analytics = build_validator_analytics(
+        normalized_root / VALIDATORS_LIST_PATH,
+        circulating,
+        network_total_stake=total_active_stake,
+        active_validators_count=int(current_validators) if current_validators is not None else None,
+    )
+    metrics.update(validator_analytics["metrics"])
+    # Keep the summary endpoint values authoritative for network totals.
+    if total_active_stake is not None:
+        metrics["total_active_stake"] = total_active_stake
+        metrics["staking_ratio"] = _ratio_pct(total_active_stake, circulating)
+    if current_validators is not None:
+        metrics["active_validators_count"] = current_validators
+
     daily_rows: dict[date, dict[str, Decimal | None]] = {}
     all_supply_dates = list(supplies)
     for offset in range((all_supply_dates[-1] - all_supply_dates[0]).days + 1):
@@ -357,16 +417,6 @@ def build_tokenomics_analytics(
                 "net_issuance_near": None,
                 "daily_net_inflation_pct": None,
                 "net_inflation_30d_annualized_pct": None,
-                "gross_burn_near": None,
-                "contract_rewards_near": None,
-                "contract_rewards_usd": None,
-                "token_burn_usd": None,
-                "estimated_gross_issuance_usd": None,
-                "burn_rate_pct": None,
-                "net_burn_near": None,
-                "net_burn_rate_pct": None,
-                "gross_issuance_near": None,
-                "burn_offset_pct": None,
             }
             continue
         previous = supplies.get(day - timedelta(days=1))
@@ -381,14 +431,6 @@ def build_tokenomics_analytics(
             with localcontext() as context:
                 context.prec = 50
                 inflation_30d = ((total / start_30d) ** (Decimal(365) / Decimal(30)) - 1) * 100
-        rewards = contract_rewards.get(day)
-        net_burn = gross_burn[day] - rewards if day in gross_burn and rewards is not None else None
-        issuance = (
-            change + gross_burn[day]
-            if change is not None and day in gross_burn else None
-        )
-        burn_usd = gross_burn[day] * prices[day] if day in gross_burn and day in prices else None
-        issuance_usd = issuance * prices[day] if issuance is not None and day in prices else None
         daily_rows[day] = {
             "total_supply": total,
             "circulating_supply": current_circulating,
@@ -401,34 +443,46 @@ def build_tokenomics_analytics(
             "net_issuance_near": change,
             "daily_net_inflation_pct": net_inflation,
             "net_inflation_30d_annualized_pct": inflation_30d,
-            "gross_burn_near": gross_burn.get(day),
-            "contract_rewards_near": rewards,
-            "contract_rewards_usd": rewards * prices[day] if rewards is not None and day in prices else None,
-            "token_burn_usd": burn_usd,
-            "estimated_gross_issuance_usd": issuance_usd,
-            "burn_rate_pct": _ratio_pct(burn_usd, issuance_usd),
-            "net_burn_near": net_burn,
-            "net_burn_rate_pct": _ratio_pct(net_burn, previous_total),
-            "gross_issuance_near": issuance,
-            "burn_offset_pct": _ratio_pct(burn_usd, issuance_usd),
         }
 
-    current_period_metrics: dict[str, Any] = {}
-    for period_days in FLOW_PERIOD_DAYS:
-        period = _period_supply_metrics(supplies, daily_rows, gross_burn, period_days)
-        suffix = f"{period_days}d"
-        current_period_metrics.update({
-            f"net_supply_change_{suffix}_near": period.get("net_supply_change_near"),
-            f"net_supply_growth_{suffix}_pct": period.get("net_supply_growth_pct"),
-            f"net_inflation_{suffix}_annualized_pct": period.get("net_inflation_annualized_pct"),
-            f"deflationary_days_{suffix}": period.get("deflationary_days"),
-            f"gross_burn_{suffix}_near": period.get("gross_burn_near"),
-            f"gross_issuance_{suffix}_near": period.get("gross_issuance_near"),
-            f"gross_issuance_{suffix}_pct": period.get("gross_issuance_pct"),
-            f"gross_issuance_{suffix}_annualized_pct": period.get("gross_issuance_annualized_pct"),
-            f"burn_offset_{suffix}_pct": period.get("burn_offset_pct"),
-        })
-    metrics.update(current_period_metrics)
+    burn_rows, burn_document, reward_zero_counts = build_burn_analytics(
+        supplies,
+        gross_burn,
+        contract_rewards,
+        contract_reward_audit_range,
+        prices,
+        network=None,
+        updated_at=None,
+    )
+    issuance_rows, issuance_document, flow_metrics = build_issuance_analytics(
+        supplies,
+        daily_rows,
+        burn_rows,
+        prices,
+        network=None,
+        updated_at=None,
+    )
+    for document in (burn_document, issuance_document):
+        document["network"] = tokenomics_summary.get("network")
+        document["updated_at"] = tokenomics_summary.get("updated_at")
+
+    metrics.update(flow_metrics)
+    latest_net_burn_day = next(
+        (day for day in reversed(burn_rows) if burn_rows[day]["net_burn_near"] is not None),
+        None,
+    )
+    latest_burn_coverage_day = next(
+        (day for day in reversed(issuance_rows) if issuance_rows[day]["burn_coverage_pct"] is not None),
+        None,
+    )
+    metrics["latest_net_burn_near"] = (
+        burn_rows[latest_net_burn_day]["net_burn_near"] if latest_net_burn_day else None
+    )
+    metrics["latest_net_burn_date"] = latest_net_burn_day.isoformat() if latest_net_burn_day else None
+    metrics["latest_burn_coverage_pct"] = (
+        issuance_rows[latest_burn_coverage_day]["burn_coverage_pct"] if latest_burn_coverage_day else None
+    )
+    metrics["latest_burn_coverage_date"] = latest_burn_coverage_day.isoformat() if latest_burn_coverage_day else None
     metrics["current_net_inflation_30d_annualized_pct"] = metrics.get(
         "net_inflation_30d_annualized_pct"
     )
@@ -450,6 +504,14 @@ def build_tokenomics_analytics(
     latest_supply_change = daily_rows[latest_supply_day]["daily_net_supply_change_near"]
     metrics["daily_net_supply_change_near"] = latest_supply_change
     metrics["daily_net_inflation_pct"] = daily_rows[latest_supply_day]["daily_net_inflation_pct"]
+    latest_stake_day = next(reversed(daily_active_validator_stake), None)
+    metrics["historical_active_validator_stake_near"] = (
+        daily_active_validator_stake[latest_stake_day]["total_active_stake_near"]
+        if latest_stake_day is not None else None
+    )
+    metrics["historical_active_validator_stake_date"] = (
+        latest_stake_day.isoformat() if latest_stake_day is not None else None
+    )
 
     def coverage(values: dict[date, Any], status: str = "observed") -> dict[str, Any]:
         if not values:
@@ -465,23 +527,32 @@ def build_tokenomics_analytics(
         }
 
     negative_issuance_dates = [
-        day.isoformat() for day, row in daily_rows.items()
+        day.isoformat() for day, row in issuance_rows.items()
         if row["gross_issuance_near"] is not None
         and row["gross_issuance_near"] < 0
     ]
     unusual_burn_offset_dates = [
-        day.isoformat() for day, row in daily_rows.items()
+        day.isoformat() for day, row in issuance_rows.items()
         if row["burn_offset_pct"] is not None
         and (row["burn_offset_pct"] < 0 or row["burn_offset_pct"] > 100)
     ]
     data_quality = {
         "daily_supply": coverage(supplies, "observed_approximate_float64"),
+        "daily_active_validator_stake": coverage(
+            daily_active_validator_stake,
+            validator_stake_status,
+        ),
         "daily_gross_burn": coverage(gross_burn),
-        "daily_contract_rewards": coverage(contract_rewards),
+        "contract_reward_event_audit": coverage(contract_rewards, "audited_valid_reward_events"),
+        "contract_rewards_zero_filled": {
+            "policy": "zero for absent events within the complete audit range and after protocol version 87",
+            "protocol_v87_zero_from": PROTOCOL_V87_ZERO_REWARDS_FROM.isoformat(),
+            **reward_zero_counts,
+        },
         "estimated_gross_issuance": {
             "status": "estimated",
-            "definition": "daily net supply change plus daily gross burn",
-            "limitation": "Reconciliation is approximate because total supply source values use float64 and may include unmodeled supply adjustments.",
+            "definition": "daily net issuance plus net burn (tokens_burnt minus contract rewards)",
+            "limitation": "Null when supply change or gross burn is missing, and before reward audit coverage when contract rewards are unknown; reconciliation is approximate because total supply source values use float64 and may include unmodeled supply adjustments.",
             "negative_daily_observation_count": len(negative_issuance_dates),
             "negative_daily_observation_dates": negative_issuance_dates[:30],
             "burn_offset_outside_0_100_count": len(unusual_burn_offset_dates),
@@ -494,12 +565,28 @@ def build_tokenomics_analytics(
         "network": tokenomics_summary.get("network"),
         "updated_at": tokenomics_summary.get("updated_at"),
         "metrics": metrics,
+        "validators": validator_analytics["validators"],
         "data_quality": data_quality,
         "metric_types": {
             "daily_net_supply_change_near": "derived_from_observed_total_supply",
+            "historical_active_validator_stake_near": "sum_current_validators_stake_in_exact_yoctoNEAR_then_convert_to_NEAR",
+            "daily_net_burn_near": "tokens_burnt_minus_contract_rewards",
             "daily_net_inflation_pct": "derived_from_observed_total_supply",
-            "gross_issuance_near": "estimated_from_net_supply_change_and_gross_burn",
+        "gross_issuance_near": "estimated_from_net_supply_change_plus_observed_net_burn",
         },
+    }
+    buyback_quality = add_buyback_analytics(normalized_root, output_dir, snapshot)
+    snapshot["data_quality"]["buyback_transfers"] = {
+        "data_status": buyback_quality["transfer_status"],
+        "observations": buyback_quality["transfer_observations"],
+        "latest_date": (
+            buyback_quality["latest_transfer_date"].isoformat()
+            if buyback_quality["latest_transfer_date"] else None
+        ),
+    }
+    snapshot["data_quality"]["buyback_wallet_balance"] = {
+        "data_status": buyback_quality["balance_status"],
+        "snapshot_date": metrics["buyback_wallet_balance_date"],
     }
     output_dir.mkdir(parents=True, exist_ok=True)
     daily_document = {
@@ -518,35 +605,65 @@ def build_tokenomics_analytics(
             "timezone": "UTC",
             "date_convention": "UTC calendar date; daily supply uses the normalized period-end snapshot date",
         },
-        "items": [{"date": day.isoformat(), **values} for day, values in daily_rows.items()],
-        "periods": _tokenomics_period_series(daily_rows, prices),
+        "metric": {"scope": "supply_and_inflation_only"},
+        "items": [
+            {
+                "date": day.isoformat(),
+                **{field: values.get(field) for field in (
+                    "total_supply", "circulating_supply", "non_circulating_supply_near",
+                    "circulating_supply_ratio_pct", "daily_net_inflation_pct",
+                    "net_inflation_30d_annualized_pct",
+                )},
+            }
+            for day, values in daily_rows.items()
+        ],
     }
     (output_dir / "daily_tokenomics.json").write_text(
         validate_json(daily_tokenomics_document), encoding="utf-8"
     )
-
-    demo_path = output_dir / "daily_contract_rewards.json"
-    if contract_rewards:
-        latest_reward_date = next(reversed(contract_rewards))
-        demo_summary = {"latest_daily_near": contract_rewards[latest_reward_date]}
-        for days in FLOW_PERIOD_DAYS:
-            demo_summary[f"total_{days}d_near"] = _contract_rewards_totals(contract_rewards, days)
-        demo_document = {
+    for period, items in _tokenomics_period_series(daily_rows).items():
+        if period == "daily":
+            continue
+        period_document = {
             "schema_version": "1.0.0",
             "network": tokenomics_summary.get("network"),
-            "unit": "NEAR",
-            "updated_at": tokenomics_summary.get("updated_at"),
-            "summary": demo_summary,
-            "coverage": coverage(contract_rewards),
-            "observations": [
-                {"date": day.isoformat(), "contract_rewards_near": value}
-                for day, value in contract_rewards.items()
-            ],
+            "period": period,
+            "metric": {"scope": "supply_and_inflation_only"},
+            "items": items,
         }
-        demo_path.write_text(validate_json(demo_document), encoding="utf-8")
-    else:
-        demo_path.unlink(missing_ok=True)
-    (output_dir / "contract_rewards_demo.json").unlink(missing_ok=True)
+        (output_dir / f"{period}_tokenomics.json").write_text(
+            validate_json(period_document), encoding="utf-8"
+        )
+
+    burn_periods = burn_document.pop("periods", {})
+    (output_dir / "daily_burn.json").write_text(
+        validate_json(burn_document), encoding="utf-8"
+    )
+    for period, items in burn_periods.items():
+        if period == "daily":
+            continue
+        (output_dir / f"{period}_burn.json").write_text(validate_json({
+            "schema_version": "1.0.0",
+            "network": burn_document.get("network"),
+            "period": period,
+            "metric": burn_document.get("metric"),
+            "items": items,
+        }), encoding="utf-8")
+
+    issuance_periods = issuance_document.pop("periods", {})
+    (output_dir / "daily_issuance.json").write_text(
+        validate_json(issuance_document), encoding="utf-8"
+    )
+    for period, items in issuance_periods.items():
+        if period == "daily":
+            continue
+        (output_dir / f"{period}_issuance.json").write_text(validate_json({
+            "schema_version": "1.0.0",
+            "network": issuance_document.get("network"),
+            "period": period,
+            "metric": issuance_document.get("metric"),
+            "items": items,
+        }), encoding="utf-8")
 
     daily_supply_document = {
         "schema_version": "1.0.0",
@@ -559,6 +676,52 @@ def build_tokenomics_analytics(
         ],
     }
     (output_dir / "daily_supply.json").write_text(validate_json(daily_supply_document), encoding="utf-8")
+
+    daily_active_stake_document = {
+        "schema_version": "1.0.0",
+        "network": tokenomics_summary.get("network"),
+        "data_status": "observed" if daily_active_validator_stake else "unavailable",
+        "metric": {
+            "unit": "percent",
+            "formula": "total_active_stake_near / total_supply * 100",
+            "aggregation": "sum_current_validators_per_daily_block",
+            "precision": "exact_integer_yoctoNEAR_before_conversion",
+        },
+        "items": [
+            {
+                "date": day.isoformat(),
+                "block_height": values["block_height"],
+                "total_active_stake_near": values["total_active_stake_near"],
+                "total_supply": supplies.get(day, {}).get("total_supply"),
+                "staking_ratio_pct": _ratio_pct(
+                    values["total_active_stake_near"],
+                    supplies.get(day, {}).get("total_supply"),
+                ),
+            }
+            for day, values in daily_active_validator_stake.items()
+        ],
+    }
+    daily_active_stake_items = daily_active_stake_document["items"]
+    daily_active_stake_document["items"] = _stake_supply_period_rows(
+        daily_active_stake_items, "daily"
+    )
+    (output_dir / "daily_active_validator_stake.json").write_text(
+        validate_json(daily_active_stake_document), encoding="utf-8"
+    )
+    for period in CHART_PERIODS:
+        if period == "daily":
+            continue
+        period_document = {
+            "schema_version": "1.0.0",
+            "network": tokenomics_summary.get("network"),
+            "period": period,
+            "data_status": "observed" if daily_active_validator_stake else "unavailable",
+            "metric": daily_active_stake_document["metric"],
+            "items": _stake_supply_period_rows(daily_active_stake_items, period),
+        }
+        (output_dir / f"{period}_active_validator_stake.json").write_text(
+            validate_json(period_document), encoding="utf-8"
+        )
     for period in SUPPLY_PERIODS:
         period_document = {
             "schema_version": "1.0.0",
@@ -572,7 +735,7 @@ def build_tokenomics_analytics(
 
     output_path = output_dir / "snapshot.json"
     output_path.write_text(validate_json(snapshot), encoding="utf-8")
-    print(f"tokenomics analytics: wrote snapshot -> {output_path}")
     (output_dir / "daily_metrics.json").unlink(missing_ok=True)
-    print(f"tokenomics analytics: wrote daily metrics -> {daily_path}")
+    from console_ui import console
+    console.print("[green]OK[/green] Tokenomics [dim]· snapshot and daily series ready[/dim]")
     return output_path

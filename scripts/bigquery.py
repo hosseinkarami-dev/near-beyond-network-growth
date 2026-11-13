@@ -16,9 +16,16 @@ from collectors.bigquery import (
     DAILY_GROSS_BURN_QUERY,
     DAILY_SUPPLY_PATH,
     DAILY_SUPPLY_QUERY,
-    QueryDefinition,
-    collect_buyback_transfers,
-    collect_contract_reward_audit,
-    collect_daily_gross_burn,
-    collect_daily_supply,
+    QUERY_DEFINITION,
+    COLLECT_BUYBACK_TRANSFERS,
+    COLLECT_CONTRACT_REWARD_AUDIT,
+    COLLECT_DAILY_GROSS_BURN,
+    COLLECT_DAILY_SUPPLY,
 )
+
+# Backward-compatible conventional names for existing scripts and tests.
+QueryDefinition = QUERY_DEFINITION
+collect_buyback_transfers = COLLECT_BUYBACK_TRANSFERS
+collect_contract_reward_audit = COLLECT_CONTRACT_REWARD_AUDIT
+collect_daily_gross_burn = COLLECT_DAILY_GROSS_BURN
+collect_daily_supply = COLLECT_DAILY_SUPPLY

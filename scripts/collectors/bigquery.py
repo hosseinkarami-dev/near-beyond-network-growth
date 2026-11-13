@@ -59,6 +59,11 @@ __all__ = [
     "DAILY_GROSS_BURN_QUERY",
     "DAILY_SUPPLY_PATH",
     "DAILY_SUPPLY_QUERY",
+    "QUERY_DEFINITION",
+    "COLLECT_BUYBACK_TRANSFERS",
+    "COLLECT_CONTRACT_REWARD_AUDIT",
+    "COLLECT_DAILY_GROSS_BURN",
+    "COLLECT_DAILY_SUPPLY",
     "QueryDefinition",
     "collect_buyback_transfers",
     "collect_contract_reward_audit",
@@ -340,6 +345,7 @@ def _collect_daily_dataset(
             print(f"{definition.name}: up to date through {last_date}")
             return True
 
+
         query = _load_query(definition, start_date, end_date)
         bq_client = client or bigquery.Client()
         rows = [dict(row.items()) for row in bq_client.query(query).result()]
@@ -366,3 +372,12 @@ def _collect_daily_dataset(
     except Exception as exc:
         print(f"{definition.name}: failure: {exc}")
         return False
+
+
+# Uppercase public aliases provide the requested casing for pipeline imports;
+# the conventional class and function names remain available for compatibility.
+QUERY_DEFINITION = QueryDefinition
+COLLECT_BUYBACK_TRANSFERS = collect_buyback_transfers
+COLLECT_CONTRACT_REWARD_AUDIT = collect_contract_reward_audit
+COLLECT_DAILY_GROSS_BURN = collect_daily_gross_burn
+COLLECT_DAILY_SUPPLY = collect_daily_supply

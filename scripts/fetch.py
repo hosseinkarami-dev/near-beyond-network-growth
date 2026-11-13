@@ -362,17 +362,17 @@ def fetch_bigquery(source: Source) -> bool:
 
     try:
         from collectors.bigquery import (
-            collect_buyback_transfers,
-            collect_contract_reward_audit,
-            collect_daily_gross_burn,
-            collect_daily_supply,
+            COLLECT_BUYBACK_TRANSFERS,
+            COLLECT_CONTRACT_REWARD_AUDIT,
+            COLLECT_DAILY_GROSS_BURN,
+            COLLECT_DAILY_SUPPLY,
         )
 
         collectors = {
-            SourceName.BIGQUERY_DAILY_SUPPLY: collect_daily_supply,
-            SourceName.BIGQUERY_DAILY_GROSS_BURN: collect_daily_gross_burn,
-            SourceName.BIGQUERY_CONTRACT_REWARD_AUDIT: collect_contract_reward_audit,
-            SourceName.BIGQUERY_BUYBACK_TRANSFERS: collect_buyback_transfers,
+            SourceName.BIGQUERY_DAILY_SUPPLY: COLLECT_DAILY_SUPPLY,
+            SourceName.BIGQUERY_DAILY_GROSS_BURN: COLLECT_DAILY_GROSS_BURN,
+            SourceName.BIGQUERY_CONTRACT_REWARD_AUDIT: COLLECT_CONTRACT_REWARD_AUDIT,
+            SourceName.BIGQUERY_BUYBACK_TRANSFERS: COLLECT_BUYBACK_TRANSFERS,
         }
         return collectors[source.name](raw_path(source))
     except Exception as exc:

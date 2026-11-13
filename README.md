@@ -138,3 +138,7 @@ Important limitations and exact source definitions are documented in `docs/analy
 - **FastNEAR archival RPC:** block/validator calls used for historical active stake and `view_account` for the current buyback-wallet balance.
 
 Source endpoints, raw filenames, and update frequencies are registered in `scripts/sources.py`. BigQuery query configuration and collectors live in `scripts/collectors/bigquery.py`; FastNEAR collectors live in `scripts/collectors/`; parsers are registered in `scripts/normalization/registry.py`. Analytics output files and calculations are organized by domain under `scripts/analytics/`.
+
+## License
+
+This repository is licensed under the MIT License. See [`LICENSE`](LICENSE) for the full text.

@@ -1,31 +1,33 @@
-# NEARscope Investment Thesis
+# Dashboard
 
-The dashboard reads generated JSON from `../data/analytics` and presents it through a modular Nuxt and Vue interface.
-
-The dashboard data URL base can be overridden with `NUXT_PUBLIC_ANALYTICS_BASE_URL`. Its default remains `/data/analytics`; set the variable to another path or a hosted base URL when needed. See `.env.example`.
+This is the Nuxt frontend for NEARscope. It reads the JSON files built by the Python pipeline and presents them in the Dashboard, Research & Methodology, Network, Tokenomics, Intents, and Protocols pages. Calculations and period aggregation belong to `scripts/analytics/`, not to Vue components.
 
 ## Run locally
 
-1. Open a terminal in `dashboard/`.
-2. Run `npm install` once.
-3. Run `npm run dev` and open the local URL printed by Nuxt.
+From this directory:
 
-The `dev`, `build`, and `generate` scripts copy the current Analytics JSON into `public/data/analytics` before Nuxt starts. The dashboard only reads these copies; it does not modify the source Analytics files.
+```sh
+npm install
+npm run dev
+```
 
-## Partial data availability
+The app needs to be served over HTTP; opening an HTML file directly will leave the data requests without their expected base path. The `dev`, `build`, and `generate` commands sync `../data/analytics/` into `public/data/analytics/` before Nuxt runs. A completed `py ../scripts/build_analytics.py` also syncs the built files. If you need to sync by hand, run `npm run sync:data`.
 
-The data pipeline isolates failures by source and analytics section. Missing or invalid raw data is skipped during normalization; a section whose required inputs are unavailable receives an empty snapshot while other sections continue building. Protocol categories are isolated from one another. Dashboard pages also treat an unavailable analytics JSON file as empty data, so one missing file does not prevent the page or the rest of the dashboard from rendering.
+The default data URL is `/data/analytics`. Override it with `NUXT_PUBLIC_ANALYTICS_BASE_URL` in a local `.env` file. See `.env.example`.
 
-Run `python ../scripts/main.py` from the dashboard directory to fetch, normalize, and rebuild analytics. After that pipeline finishes, run `npm run sync:data` to refresh the data served by an already-running dev server.
+## Data availability
 
-## Structure
+Raw responses, normalized records, analytics outputs, and the dashboard's public data copy are generated locally and ignored by Git. On a fresh checkout, run `py ../scripts/main.py` from this directory (or `python3 ../scripts/main.py` on macOS/Linux) to fetch, normalize, build Analytics, and sync the dashboard data.
 
-- `app/components/shell`: app navigation and top bar.
-- `app/components/ui`: reusable headings, metric cards, and panels.
-- `app/components/charts`: reusable ECharts container and period/currency controls.
-- `app/pages`: overview, network, tokenomics, NEAR Intents, and protocol pages.
-- `app/composables`: theme state, formatting, and Analytics data helpers.
+Collectors and analytics sections handle unavailable sources independently. One missing source can leave its own card or chart empty, but it should not prevent unrelated sections from rendering. Existing saved data is retained when a refresh fails.
 
-`LineChart`, `BarChart`, `PieChart`, and `MixedChart` are reusable chart entry points built on `AnalyticsChart`. Charts accept multiple line, bar, and pie series, including mixed bar/line series and a second value axis. Period and currency controls are shown when the supplied datasets contain multiple choices.
+## Code layout
 
-The frontend dependencies are Nuxt 4, Vue ECharts with Apache ECharts 6, and Lucide Vue icons. DM Sans and Manrope are used for the interface typography.
+- `app/components/shell/` holds navigation and the shared app frame.
+- `app/components/ui/` holds reusable headings, cards, tables, and panels.
+- `app/components/charts/` holds ECharts wrappers and period/currency controls.
+- `app/pages/` holds the Overview and detailed research tabs.
+- `app/composables/` holds theme state, formatting helpers, and analytics-file access.
+- `scripts/sync-analytics.mjs` copies Analytics JSON into the public directory before a dashboard command.
+
+`LineChart`, `BarChart`, `PieChart`, and `MixedChart` all use the shared `AnalyticsChart` component. Pages pass prepared series to these components; they do not aggregate underlying daily data.

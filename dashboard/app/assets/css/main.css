@@ -189,6 +189,10 @@ h1, h2, h3, p { margin-top: 0; }
 .research-section { margin: 0 0 22px; scroll-margin-top: 140px; }
 .research-section.panel-card { padding: 21px; }
 .research-section > .research-section-heading { margin-bottom: 13px; }
+.research-section-content { padding: 19px 21px; }
+.research-section-content > .research-intro { margin: 0 0 13px; }
+.research-section-content > .research-findings-grid { margin-top: 0; }
+.research-section-content > .research-source { margin-top: 12px; }
 .research-section-heading { display: flex; align-items: center; gap: 11px; }
 .research-section-heading .eyebrow { margin: 0 0 2px; color: var(--muted); font-size: 10px; }
 .research-section-heading h2 { margin: 0; font: 700 20px/1.25 'Manrope', sans-serif; letter-spacing: -.4px; }

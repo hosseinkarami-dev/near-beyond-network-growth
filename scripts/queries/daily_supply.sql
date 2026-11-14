@@ -1,7 +1,7 @@
 SELECT
     b.block_date AS utc_date,
     b.block_height,
-    b.total_supply,
+    COALESCE(c.total_tokens_supply, b.total_supply) AS total_supply,
     c.circulating_tokens_supply as circulating_supply
 FROM
     `bigquery-public-data.crypto_near_mainnet_us.blocks` b

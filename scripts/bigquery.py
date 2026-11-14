@@ -6,8 +6,6 @@ New code should import collectors from :mod:`collectors.bigquery`.
 from collectors.bigquery import (
     BUYBACK_MAX_BYTES_BILLED,
     BUYBACK_TRANSFERS_START,
-    BUYBACK_TRANSFER_TYPES,
-    BUYBACK_TYPE_SENDERS,
     CONTRACT_REWARD_AUDIT_END,
     CONTRACT_REWARD_AUDIT_MAX_BYTES_BILLED,
     CONTRACT_REWARD_AUDIT_PATH,

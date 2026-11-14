@@ -3,11 +3,9 @@
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
-from buybacks import BUYBACK_TRANSFER_TYPES
 from sources import SourceName, get_source, source_metadata
 
 
-TRANSFER_TYPES = BUYBACK_TRANSFER_TYPES
 AMOUNT_FIELDS = (
     "native_inflow_near", "wrapped_inflow_near", "total_inflow_near",
     "native_transfer_count", "wrapped_transfer_count", "total_transfer_count",
@@ -42,17 +40,18 @@ def parse_buyback_transfers(raw_data):
         except (KeyError, TypeError, ValueError, InvalidOperation) as exc:
             raise ValueError(f"Buyback transfer record {index} is invalid") from exc
 
-        if day.isoformat() != day_text or transfer_type not in TRANSFER_TYPES:
+        if (day.isoformat() != day_text
+                or not isinstance(transfer_type, str) or not transfer_type.strip()):
             raise ValueError(f"Buyback transfer record {index} has an invalid date or transfer_type")
         if not isinstance(sender, str) or not sender:
             raise ValueError(f"Buyback transfer record {index} has an invalid sender")
-        key = (day, transfer_type)
+        key = (day, transfer_type, sender)
         if key in seen:
             raise ValueError(f"Duplicate buyback transfer observation: {key}")
         seen.add(key)
         observations.append({"date": day_text, "sender": sender, "transfer_type": transfer_type, **values})
 
-    observations.sort(key=lambda row: (row["date"], row["transfer_type"]))
+    observations.sort(key=lambda row: (row["date"], row["transfer_type"], row["sender"]))
     return {
         "daily_buyback_transfers.json": {
             "schema_version": "1.0.0",

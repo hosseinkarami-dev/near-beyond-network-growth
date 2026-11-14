@@ -372,7 +372,9 @@ def build_near_intents_analytics(
     protocol_flows = {
         field: _read_protocol_flow(
             normalized_root / relative, key,
-            allow_missing_protocol=(field in {"revenue_usd", "gross_fees_usd"}),
+            allow_missing_protocol=(field in {
+                "holders_revenue_usd", "revenue_usd", "gross_fees_usd",
+            }),
         )
         for field, (relative, key) in PROTOCOL_FLOWS.items()
     }

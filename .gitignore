@@ -30,3 +30,6 @@ __pycache__/
 **/.pytest_cache/
 *.py[cod]
 *.log
+
+# Local console error log
+/logs/errors.log

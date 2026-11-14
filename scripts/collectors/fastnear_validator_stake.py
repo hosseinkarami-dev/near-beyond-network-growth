@@ -3,7 +3,8 @@
 import json
 import random
 import time
-from datetime import date, datetime, timezone
+from calendar import monthrange
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
@@ -11,15 +12,24 @@ from urllib.error import HTTPError, URLError
 from atomic_io import atomic_write_text
 from sources import Source, SourceName, get_source, raw_path
 from rpc_clients.near import NearRpcClient
-from rich.console import Console
+from console_ui import console, error
 from rich.progress import track
 
-console = Console()
-
 DAILY_SUPPLY_PATH = raw_path(get_source(SourceName.BIGQUERY_DAILY_SUPPLY))
-REQUEST_START_DATE = date(2026, 9, 1)
+LOOKBACK_MONTHS = 3
 MAX_ATTEMPTS = 6
 REQUEST_TIMEOUT_SECONDS = 30
+
+
+def _request_start_date(today: date | None = None) -> date:
+    """Return the date three calendar months before today, clamping month ends."""
+
+    current_date = today or datetime.now(timezone.utc).date()
+    month_index = current_date.year * 12 + current_date.month - 1 - LOOKBACK_MONTHS
+    year, month_zero_based = divmod(month_index, 12)
+    month = month_zero_based + 1
+    day = min(current_date.day, monthrange(year, month)[1])
+    return date(year, month, day)
 
 
 def _height(value: Any) -> int:
@@ -36,7 +46,14 @@ def _height(value: Any) -> int:
     return result
 
 
-def _read_supply_blocks(path: Path) -> list[dict[str, Any]]:
+def _is_iso_date(value: str) -> bool:
+    try:
+        return date.fromisoformat(value).isoformat() == value
+    except ValueError:
+        return False
+
+
+def _read_supply_blocks(path: Path, start_date: date) -> list[dict[str, Any]]:
     raw_rows = json.loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(raw_rows, list):
         raise ValueError("daily_supply.json must contain a list of raw records")
@@ -52,7 +69,7 @@ def _read_supply_blocks(path: Path) -> list[dict[str, Any]]:
             raise ValueError(f"daily_supply record {index} needs utc_date and block_height") from exc
         if day.isoformat() != date_text:
             raise ValueError(f"daily_supply record {index} date must use YYYY-MM-DD")
-        if day >= REQUEST_START_DATE:
+        if day >= start_date:
             if day in by_date:
                 raise ValueError(f"daily_supply.json has duplicate date {day}")
             by_date[day] = {"date": day.isoformat(), "block_height": block_height}
@@ -63,12 +80,12 @@ def _field(value: Any, name: str) -> Any:
     return value.get(name) if isinstance(value, dict) else getattr(value, name, None)
 
 
-def _read_checkpoint(path: Path, source: Source) -> dict[str, Any]:
+def _read_checkpoint(path: Path, source: Source, start_date: date) -> dict[str, Any]:
     if not path.exists():
         return {"schema_version": "1.0.0", "network": "NEAR mainnet",
                 "source": {"provider": source.provider.value, "endpoint": source.url,
                            "method": "validators", "reference": "daily_supply.json block_height"},
-                "requested_start_date": REQUEST_START_DATE.isoformat(), "items": []}
+                "requested_start_date": start_date.isoformat(), "items": []}
     document = json.loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(document, dict) or not isinstance(document.get("items"), list):
         raise ValueError(f"{path.name} checkpoint must be an object with an items list")
@@ -95,47 +112,74 @@ def collect_daily_active_validator_stake(
 
     source = source or get_source(SourceName.FASTNEAR_DAILY_ACTIVE_VALIDATOR_STAKE)
     output = Path(output_path) if output_path is not None else raw_path(source)
+    initial_start_date = _request_start_date()
     try:
         if source.url is None:
             raise ValueError("FastNEAR archival RPC endpoint is not configured")
         if not Path(supply_path).exists():
             raise FileNotFoundError(f"Required raw block references are unavailable: {supply_path}")
-        block_rows = _read_supply_blocks(Path(supply_path))
-        if not block_rows:
-            raise ValueError(f"No daily supply block references found since {REQUEST_START_DATE}")
-
-        document = _read_checkpoint(output, source)
+        document = _read_checkpoint(output, source, initial_start_date)
         existing_items: dict[str, dict[str, Any]] = {}
         for item in document["items"]:
             if isinstance(item, dict) and isinstance(item.get("utc_date"), str):
                 existing_items[item["utc_date"]] = item
+
+        # The rolling three-month window is only a bootstrap default. Once raw
+        # data exists, continue from the day after its latest saved observation.
+        latest_saved_date = max(
+            (date.fromisoformat(day) for day in existing_items if _is_iso_date(day)),
+            default=None,
+        )
+        request_start_date = (
+            latest_saved_date + timedelta(days=1)
+            if latest_saved_date is not None
+            else initial_start_date
+        )
+        is_initial_collection = latest_saved_date is None
+        block_rows = _read_supply_blocks(Path(supply_path), request_start_date)
+        if not block_rows:
+            if existing_items:
+                console.print(
+                    f"[cyan]FastNEAR daily stake[/cyan] [dim]up to date; no daily supply block references after {latest_saved_date}[/dim]"
+                )
+                return True
+            raise ValueError(f"No daily supply block references found since {request_start_date}")
 
         expected_dates = {row["date"] for row in block_rows}
         end_date = date.fromisoformat(block_rows[-1]["date"])
         missing_days = [
             day.isoformat()
             for day in (date.fromordinal(n)
-                        for n in range(REQUEST_START_DATE.toordinal(), end_date.toordinal() + 1))
+                        for n in range(request_start_date.toordinal(), end_date.toordinal() + 1))
             if day.isoformat() not in expected_dates
         ]
         if missing_days:
             print(f"{source.name}: daily_supply is missing {len(missing_days)} reference dates; available dates will still be collected")
 
-        completed = 0
-        failures: list[dict[str, str]] = []
-        for row in track(block_rows, description="FastNEAR daily stake", console=console):
-            day_text = row["date"]
-            block_height = row["block_height"]
-            existing = existing_items.get(day_text)
+        pending_rows = []
+        for row in block_rows:
+            existing = existing_items.get(row["date"])
             total_stake_text = existing.get("total_active_stake_yocto") if isinstance(existing, dict) else None
             has_stake_data = isinstance(total_stake_text, str) and total_stake_text.isdigit()
-            if existing is not None and existing.get("block_height") == block_height and has_stake_data:
-                continue
+            if existing is None or existing.get("block_height") != row["block_height"] or not has_stake_data:
+                pending_rows.append(row)
 
+        if pending_rows:
+            collection_type = "First-time collection" if is_initial_collection else "Incremental collection"
+            console.print(
+                f"[cyan]FastNEAR daily stake · {request_start_date} to {end_date}[/cyan]\n"
+                f"[dim]{collection_type} may take a few minutes. Please wait while progress updates below.[/dim]"
+            )
+
+        completed = 0
+        failures: list[dict[str, str]] = []
+        for row in track(pending_rows, description="FastNEAR daily stake", console=console):
+            day_text = row["date"]
+            block_height = row["block_height"]
             request_error: Exception | None = None
             for attempt in range(max_attempts):
                 try:
-                    with NearRpcClient(source.url, timeout=timeout) as rpc:
+                    with NearRpcClient(source.url, timeout=timeout, source=source) as rpc:
                         block_response = rpc.block(block_height)
                         epoch_id = _field(_field(block_response, "header"), "epoch_id")
                         epoch_id_value = _field(epoch_id, "root")
@@ -190,7 +234,10 @@ def collect_daily_active_validator_stake(
                     "block_height": str(block_height),
                     "error": str(request_error),
                 })
-                console.print(f"[red]ERROR[/red] {day_text} block {block_height} [dim]{request_error}[/dim]")
+                error(
+                    f"FastNEAR stake request failed for {day_text} · block {block_height}",
+                    details=f"{type(request_error).__name__}: {request_error}",
+                )
                 continue
 
             if completed and completed % 10 == 0:
@@ -205,5 +252,8 @@ def collect_daily_active_validator_stake(
             return False
         return True
     except Exception as exc:
-        console.print(f"[red]ERROR[/red] {source.name}: {type(exc).__name__}: {exc} [dim](checkpoints preserved)[/dim]")
+        error(
+            f"{source.name} failed; saved checkpoints are preserved",
+            details=f"{type(exc).__name__}: {exc}",
+        )
         return False

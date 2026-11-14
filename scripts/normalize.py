@@ -5,7 +5,7 @@ from collections import defaultdict
 from decimal import Decimal
 
 from atomic_io import atomic_write_text
-from console_ui import console
+from console_ui import console, error
 from data_dirs import clear_directory
 from normalization.registry import NORMALIZED_DATA_DIR, PARSER_REGISTRATIONS
 from paths import DATA_ROOT
@@ -52,9 +52,9 @@ def normalize_all() -> bool:
                             validate_json(document),
                         ))
             except Exception as exc:
-                console.print(
-                    f"[yellow]![/yellow] {source_name} "
-                    f"[dim]{type(exc).__name__}: {exc}[/dim]"
+                error(
+                    f"{source_name} normalization failed ({type(exc).__name__})",
+                    details=str(exc),
                 )
                 skipped_sources += 1
                 progress.advance(task)
@@ -65,7 +65,7 @@ def normalize_all() -> bool:
                     atomic_write_text(destination, serialized)
                     console.print(f"[green]✓[/green] {source_name} [dim]→ {destination.name}[/dim]")
             except OSError as exc:
-                console.print(f"[yellow]![/yellow] {source_name} [dim]write failed: {exc}[/dim]")
+                error(f"{source_name} normalized output write failed", details=str(exc))
                 skipped_sources += 1
             progress.advance(task)
 

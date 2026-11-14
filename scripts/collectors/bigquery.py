@@ -1,6 +1,7 @@
 """Google BigQuery query definitions and raw dataset collectors."""
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -8,8 +9,9 @@ from pathlib import Path
 from typing import Any
 
 from atomic_io import atomic_write_text
-from buybacks import BUYBACK_TRANSFER_SENDERS, BUYBACK_TRANSFER_TYPES
+from console_ui import dataset_saved, dataset_skipped, dataset_up_to_date, error, stage
 from google.cloud import bigquery
+from request_state import request_finished, request_started
 from sources import SourceName, get_source, raw_path
 
 
@@ -18,10 +20,9 @@ DAILY_SUPPLY_PATH = raw_path(get_source(SourceName.BIGQUERY_DAILY_SUPPLY))
 DAILY_GROSS_BURN_PATH = raw_path(get_source(SourceName.BIGQUERY_DAILY_GROSS_BURN))
 CONTRACT_REWARD_AUDIT_PATH = raw_path(get_source(SourceName.BIGQUERY_CONTRACT_REWARD_AUDIT))
 CONTRACT_REWARD_AUDIT_START = date(2026, 1, 1)
-CONTRACT_REWARD_AUDIT_END = date(2026, 11, 4)
+CONTRACT_REWARD_AUDIT_END = date(2026, 10, 4)
 CONTRACT_REWARD_AUDIT_MAX_BYTES_BILLED = 320 * 1024**3
 BUYBACK_TRANSFERS_START = date(2026, 4, 1)
-BUYBACK_TYPE_SENDERS = BUYBACK_TRANSFER_SENDERS
 BUYBACK_MAX_BYTES_BILLED = 100 * 1024**3
 
 
@@ -49,8 +50,6 @@ DAILY_GROSS_BURN_QUERY = QueryDefinition(
 __all__ = [
     "BUYBACK_MAX_BYTES_BILLED",
     "BUYBACK_TRANSFERS_START",
-    "BUYBACK_TRANSFER_TYPES",
-    "BUYBACK_TYPE_SENDERS",
     "CONTRACT_REWARD_AUDIT_END",
     "CONTRACT_REWARD_AUDIT_MAX_BYTES_BILLED",
     "CONTRACT_REWARD_AUDIT_PATH",
@@ -86,6 +85,20 @@ def _json_value(value: Any) -> Any:
     if isinstance(value, Decimal):
         return str(value)
     raise TypeError(f"Cannot serialize BigQuery value: {type(value).__name__}")
+
+
+def _query_rows(source_name: SourceName, client: Any, query: str, *, job_config=None):
+    """Run a BigQuery request and persist its request timestamp and outcome."""
+    source = get_source(source_name)
+    request_started(source)
+    try:
+        job = client.query(query, job_config=job_config) if job_config is not None else client.query(query)
+        rows = [dict(row.items()) for row in job.result()]
+    except BaseException as exc:
+        request_finished(source, exc)
+        raise
+    request_finished(source)
+    return rows
 
 
 def collect_daily_supply(
@@ -125,7 +138,10 @@ def collect_contract_reward_audit(
         try:
             existing = json.loads(output_path.read_text(encoding="utf-8-sig"))
         except (OSError, json.JSONDecodeError) as exc:
-            print(f"contract_reward_event_audit: raw output exists but is unreadable; refusing to rerun: {exc}")
+            error(
+                "Contract reward event audit raw output is unreadable; refusing to rerun",
+                details=f"{type(exc).__name__}: {exc}",
+            )
             return False
         query_range = existing.get("query_range") if isinstance(existing, dict) else None
         complete_existing = (
@@ -134,12 +150,12 @@ def collect_contract_reward_audit(
             and isinstance(query_range, dict)
         ) if isinstance(existing, dict) else False
         if not complete_existing:
-            print("contract_reward_event_audit: raw output exists but is not marked complete; refusing to rerun")
+            error("Contract reward event audit raw output is not marked complete; refusing to rerun")
             return False
         requested_start = CONTRACT_REWARD_AUDIT_START.isoformat()
         requested_end = CONTRACT_REWARD_AUDIT_END.isoformat()
         if query_range.get("start_date") == requested_start and query_range.get("end_date") == requested_end:
-            print("contract_reward_event_audit: complete raw result already exists; BigQuery request skipped")
+            dataset_skipped("Contract reward event audit", "complete raw result already exists")
             return True
         try:
             existing_covers_requested = (
@@ -150,7 +166,7 @@ def collect_contract_reward_audit(
         except (KeyError, TypeError, ValueError):
             existing_covers_requested = False
         if existing_covers_requested:
-            print("contract_reward_event_audit: complete raw result covers the configured range; BigQuery request skipped")
+            dataset_skipped("Contract reward event audit", "complete raw result covers the configured range")
             return True
         try:
             can_expand = (
@@ -160,11 +176,11 @@ def collect_contract_reward_audit(
         except (KeyError, TypeError, ValueError):
             can_expand = False
         if not can_expand:
-            print("contract_reward_event_audit: existing complete range is incompatible; refusing to replace it")
+            error("Contract reward event audit range is incompatible; refusing to replace existing raw data")
             return False
-        print(
-            "contract_reward_event_audit: expanding complete raw range "
-            f"from {query_range['start_date']} to {requested_start}; existing data will be kept unless query succeeds"
+        stage(
+            "Contract reward event audit",
+            f"expanding range {query_range['start_date']} → {requested_start}",
         )
 
     try:
@@ -173,7 +189,10 @@ def collect_contract_reward_audit(
         job_config = bigquery.QueryJobConfig(
             maximum_bytes_billed=CONTRACT_REWARD_AUDIT_MAX_BYTES_BILLED
         )
-        rows = [dict(row.items()) for row in bq_client.query(sql, job_config=job_config).result()]
+        rows = _query_rows(
+            SourceName.BIGQUERY_CONTRACT_REWARD_AUDIT, bq_client, sql,
+            job_config=job_config,
+        )
         items = []
         for row in rows:
             row_date = row.get("utc_date")
@@ -205,7 +224,10 @@ def collect_contract_reward_audit(
         print(f"contract_reward_event_audit: saved {len(items)} daily rows -> {output_path}")
         return True
     except Exception as exc:
-        print(f"contract_reward_event_audit: failure: {type(exc).__name__}: {exc}")
+        error(
+            f"Contract reward event audit failed ({type(exc).__name__})",
+            details=str(exc),
+        )
         return False
 
 
@@ -215,7 +237,7 @@ def collect_buyback_transfers(
     client: Any | None = None,
     today_utc: date | None = None,
 ) -> bool:
-    """Incrementally collect daily buyback-wallet inflows by transfer type."""
+    """Incrementally collect whatever buyback-wallet inflow types BigQuery returns."""
 
     output_path = Path(output_path) if output_path is not None else raw_path(
         get_source(SourceName.BIGQUERY_BUYBACK_TRANSFERS)
@@ -229,7 +251,7 @@ def collect_buyback_transfers(
             if not isinstance(existing, list):
                 raise ValueError("buyback_transfers raw JSON must contain a list")
 
-        by_key: dict[tuple[str, str], dict[str, Any]] = {}
+        by_key: dict[tuple[str, str, str], dict[str, Any]] = {}
         for index, row in enumerate(existing):
             if not isinstance(row, dict):
                 raise ValueError(f"buyback_transfers record {index} must be an object")
@@ -238,83 +260,89 @@ def collect_buyback_transfers(
                 transfer_type = row["transfer_type"]
             except (KeyError, TypeError, ValueError) as exc:
                 raise ValueError(f"buyback_transfers record {index} needs utc_date and transfer_type") from exc
-            if transfer_type == "internal_treasury_transfer" \
-                    and row.get("sender") == "1csfundsadmin.sputnik-dao.near":
-                transfer_type = "oneclick_and_other_revenue"
-                row["transfer_type"] = transfer_type
-            if day.isoformat() != row["utc_date"] or transfer_type not in BUYBACK_TRANSFER_TYPES:
+            sender = row.get("sender")
+            if (day.isoformat() != row["utc_date"]
+                    or not isinstance(transfer_type, str) or not transfer_type.strip()
+                    or not isinstance(sender, str) or not sender.strip()):
                 raise ValueError(f"buyback_transfers record {index} has an invalid date or transfer_type")
-            key = (day.isoformat(), transfer_type)
+            key = (day.isoformat(), transfer_type, sender)
             if key in by_key:
                 raise ValueError(f"buyback_transfers contains duplicate {key}")
             by_key[key] = row
 
-        missing_by_day: list[tuple[date, tuple[str, ...]]] = []
-        for ordinal in range(BUYBACK_TRANSFERS_START.toordinal(), last_complete_day.toordinal() + 1):
-            day_text = date.fromordinal(ordinal).isoformat()
-            missing_types = tuple(sorted(
-                transfer_type for transfer_type in BUYBACK_TRANSFER_TYPES
-                if (day_text, transfer_type) not in by_key
-            ))
-            if missing_types:
-                missing_by_day.append((date.fromisoformat(day_text), missing_types))
-
-        if not missing_by_day:
-            latest = max((date.fromisoformat(day) for day, _ in by_key), default=None)
-            print(f"buyback_transfers: raw data already complete through {latest}; BigQuery request skipped")
+        observed_through = max(
+            (date.fromisoformat(day) for day, _, _ in by_key
+             if date.fromisoformat(day) <= last_complete_day),
+            default=None,
+        )
+        range_start = max(
+            BUYBACK_TRANSFERS_START,
+            observed_through + timedelta(days=1) if observed_through else BUYBACK_TRANSFERS_START,
+        )
+        if range_start > last_complete_day:
+            dataset_up_to_date("buyback transfers", observed_through)
             return True
-
-        # Query only consecutive date ranges with the same missing transfer types.
-        ranges: list[tuple[date, date, tuple[str, ...]]] = []
-        range_start = previous = missing_by_day[0][0]
-        range_types = missing_by_day[0][1]
-        for day, missing_types in missing_by_day[1:]:
-            if day != previous + timedelta(days=1) or missing_types != range_types:
-                ranges.append((range_start, previous + timedelta(days=1), range_types))
-                range_start = day
-                range_types = missing_types
-            previous = day
-        ranges.append((range_start, previous + timedelta(days=1), range_types))
 
         bq_client = client or bigquery.Client()
         job_config = bigquery.QueryJobConfig(maximum_bytes_billed=BUYBACK_MAX_BYTES_BILLED)
-        for range_start, range_end, range_types in ranges:
-            query = _load_query(
-                QueryDefinition("buyback_transfers", "buyback_transfers.sql", BUYBACK_TRANSFERS_START),
-                range_start,
-                range_end,
-            ).replace(
-                "{{senders}}",
-                ", ".join(f"'{BUYBACK_TYPE_SENDERS[transfer_type]}'" for transfer_type in range_types),
-            )
-            rows = [dict(row.items()) for row in bq_client.query(query, job_config=job_config).result()]
-            for row in rows:
-                row_day = row.get("utc_date")
-                if isinstance(row_day, datetime):
-                    row_day = row_day.date()
-                if isinstance(row_day, date):
-                    row["utc_date"] = row_day.isoformat()
-                key = (row.get("utc_date"), row.get("transfer_type"))
-                if key[1] not in BUYBACK_TRANSFER_TYPES:
-                    raise ValueError(f"buyback query returned unknown transfer_type: {key[1]}")
-                by_key[key] = row
+        range_end = last_complete_day + timedelta(days=1)
+        query = _load_query(
+            QueryDefinition("buyback_transfers", "buyback_transfers.sql", BUYBACK_TRANSFERS_START),
+            range_start,
+            range_end,
+        )
+        rows = _query_rows(
+            SourceName.BIGQUERY_BUYBACK_TRANSFERS, bq_client, query,
+            job_config=job_config,
+        )
+        new_rows = 0
+        for row in rows:
+            row_day = row.get("utc_date")
+            if isinstance(row_day, datetime):
+                row_day = row_day.date()
+            elif isinstance(row_day, str):
+                row_day = date.fromisoformat(row_day)
+            if not isinstance(row_day, date):
+                raise ValueError("buyback query returned a row without a valid utc_date")
+            if not range_start <= row_day < range_end:
+                continue
+            transfer_type = row.get("transfer_type")
+            sender = row.get("sender")
+            if not isinstance(transfer_type, str) or not transfer_type.strip():
+                raise ValueError("buyback query returned a row without a transfer_type")
+            if not isinstance(sender, str) or not sender.strip():
+                raise ValueError("buyback query returned a row without a sender")
+            row["utc_date"] = row_day.isoformat()
+            by_key[(row_day.isoformat(), transfer_type, sender)] = row
+            new_rows += 1
 
-            for ordinal in range(range_start.toordinal(), range_end.toordinal()):
-                day_text = date.fromordinal(ordinal).isoformat()
-                if any((day_text, transfer_type) not in by_key for transfer_type in range_types):
-                    raise ValueError(f"buyback query omitted a transfer type for {day_text}")
-            merged = [by_key[key] for key in sorted(by_key)]
-            atomic_write_text(
-                output_path,
-                json.dumps(merged, indent=2, ensure_ascii=False, default=_json_value) + "\n",
-            )
-            print(
-                f"buyback_transfers: collected {range_start} through {range_end - timedelta(days=1)} "
-                f"for {', '.join(range_types)} ({len(rows)} transfer-type rows)"
-            )
+        merged = [by_key[key] for key in sorted(by_key)]
+        atomic_write_text(
+            output_path,
+            json.dumps(merged, indent=2, ensure_ascii=False, default=_json_value) + "\n",
+        )
+        print(
+            f"buyback_transfers: collected {range_start} through {last_complete_day} "
+            f"({new_rows} transfer rows; {len({row['transfer_type'] for row in rows if row.get('transfer_type')})} distinct types)"
+        )
         return True
     except Exception as exc:
-        print(f"buyback_transfers: failure: {type(exc).__name__}: {exc}")
+        failure_details = str(exc)
+        billing = re.search(
+            r"exceeded limit for bytes billed:\s*(\d+)\.\s*(\d+)\s+or higher required",
+            failure_details,
+            re.IGNORECASE,
+        )
+        if billing:
+            cap_gib = int(billing.group(1)) / (1024**3)
+            required_gib = int(billing.group(2)) / (1024**3)
+            message = (
+                f"Buyback transfers query exceeds the {cap_gib:.0f} GiB billing cap; "
+                f"BigQuery requires at least {required_gib:.1f} GiB"
+            )
+        else:
+            message = f"Buyback transfers query failed ({type(exc).__name__})"
+        error(message, details=failure_details)
         return False
 
 
@@ -342,13 +370,18 @@ def _collect_daily_dataset(
         last_date = max(dates) if dates else None
         start_date = (last_date + timedelta(days=1)) if last_date else definition.start_date
         if start_date >= end_date:
-            print(f"{definition.name}: up to date through {last_date}")
+            dataset_up_to_date(definition.name, last_date)
             return True
 
 
         query = _load_query(definition, start_date, end_date)
         bq_client = client or bigquery.Client()
-        rows = [dict(row.items()) for row in bq_client.query(query).result()]
+        source_name = (
+            SourceName.BIGQUERY_DAILY_SUPPLY
+            if definition.name == "daily_supply"
+            else SourceName.BIGQUERY_DAILY_GROSS_BURN
+        )
+        rows = _query_rows(source_name, bq_client, query)
         known_dates = dates
         additions = []
         for row in rows:
@@ -367,10 +400,13 @@ def _collect_daily_dataset(
             output_path,
             json.dumps(merged, indent=2, default=_json_value) + "\n",
         )
-        print(f"{definition.name}: collected {len(additions)} records -> {output_path}")
+        dataset_saved(definition.name, len(additions), output_path)
         return True
     except Exception as exc:
-        print(f"{definition.name}: failure: {exc}")
+        error(
+            f"{definition.name.replace('_', ' ').title()} collection failed ({type(exc).__name__})",
+            details=str(exc),
+        )
         return False
 
 

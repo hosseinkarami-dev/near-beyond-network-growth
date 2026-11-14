@@ -11,8 +11,14 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from atomic_io import atomic_write_bytes, atomic_write_text
-from console_ui import console
+from console_ui import console, error
 from paths import PROJECT_ROOT
+from request_state import (
+    request_cooldown,
+    request_failed_if_needed,
+    request_finished,
+    request_started,
+)
 from sources import SOURCES, Source, SourceName, SourceProvider, get_source, raw_path
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
@@ -42,7 +48,18 @@ def _retry_after_seconds(error: HTTPError) -> float | None:
             return None
 
 
-def _nearblocks_urlopen(request: Request, timeout: int):
+def _tracked_urlopen(source: Source, request: Request, timeout: int):
+    request_started(source)
+    try:
+        response = urlopen(request, timeout=timeout)
+    except BaseException as exc:
+        request_finished(source, exc)
+        raise
+    request_finished(source)
+    return response
+
+
+def _nearblocks_urlopen(request: Request, timeout: int, source: Source | None = None):
     """Rate-limit NearBlocks and retry transient throttling/server responses."""
 
     global _last_nearblocks_response_at
@@ -53,7 +70,8 @@ def _nearblocks_urlopen(request: Request, timeout: int):
             if wait_seconds > 0:
                 time.sleep(wait_seconds)
         try:
-            response = urlopen(request, timeout=timeout)
+            response = (_tracked_urlopen(source, request, timeout)
+                        if source is not None else urlopen(request, timeout=timeout))
             _last_nearblocks_response_at = time.monotonic()
             return response
         except HTTPError as exc:
@@ -104,69 +122,11 @@ def nearblocks_api_key() -> str | None:
     return None
 
 
-def _utc_date(value: object) -> date | None:
-    """Interpret common ISO and Unix timestamp values as a UTC calendar date."""
-    try:
-        if isinstance(value, str):
-            try:
-                return date.fromisoformat(value[:10])
-            except ValueError:
-                if not value.isdigit():
-                    return None
-                value = int(value)
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return None
-        timestamp = float(value)
-        if timestamp > 100_000_000_000:
-            timestamp /= 1000
-        if timestamp < 100_000_000:
-            return None
-        return datetime.fromtimestamp(timestamp, timezone.utc).date()
-    except (OverflowError, OSError, ValueError):
-        return None
-
-
-def _latest_daily_date(value: object, key: str | None = None) -> date | None:
-    """Find the newest date in the common daily API response shapes."""
-    dates: list[date] = []
-    if isinstance(value, dict):
-        for field, child in value.items():
-            if str(field).lower() in {"date", "timestamp", "time", "datetime"}:
-                parsed = _utc_date(child)
-                if parsed is not None:
-                    dates.append(parsed)
-            dates.extend([d for d in [_latest_daily_date(child, str(field))] if d is not None])
-    elif isinstance(value, list):
-        if len(value) >= 2 and not isinstance(value[0], (dict, list)):
-            parsed = _utc_date(value[0])
-            if parsed is not None:
-                dates.append(parsed)
-        for child in value:
-            parsed_child = _latest_daily_date(child, key)
-            if parsed_child is not None:
-                dates.append(parsed_child)
-    elif key and key.lower() in {"date", "timestamp", "time", "datetime"}:
-        parsed = _utc_date(value)
-        if parsed is not None:
-            dates.append(parsed)
-    return max(dates) if dates else None
-
-
 def fetch_json(source: Source, timeout: int = 30) -> bool:
     """Fetch valid, non-empty JSON and save the exact response bytes."""
 
     try:
         output = raw_path(source)
-        if source.frequency == "daily" and source.provider in {
-            SourceProvider.NEARBLOCKS, SourceProvider.DEFILLAMA,
-        } and output.exists():
-            previous = json.loads(output.read_text(encoding="utf-8-sig"))
-            yesterday = datetime.now(timezone.utc).date() - timedelta(days=1)
-            latest_date = _latest_daily_date(previous)
-            if latest_date is not None and latest_date >= yesterday:
-                console.print(f"[green]OK[/green] {source.name} [dim]current through {latest_date}; request skipped[/dim]")
-                return True
-
         headers = {"Accept": "application/json"}
         if source.provider is SourceProvider.NEARBLOCKS:
             headers["User-Agent"] = "NEARscope-Analytics/1.0"
@@ -183,8 +143,11 @@ def fetch_json(source: Source, timeout: int = 30) -> bool:
             headers=headers,
         )
 
-        open_request = _nearblocks_urlopen if source.provider is SourceProvider.NEARBLOCKS else urlopen
-        with open_request(request, timeout=timeout) as response:
+        if source.provider is SourceProvider.NEARBLOCKS:
+            response_context = _nearblocks_urlopen(request, timeout, source=source)
+        else:
+            response_context = _tracked_urlopen(source, request, timeout)
+        with response_context as response:
             raw = response.read()
 
         if not raw.strip():
@@ -209,7 +172,7 @@ def fetch_json(source: Source, timeout: int = 30) -> bool:
         status = f"HTTP {exc.code}" if isinstance(exc, HTTPError) else ""
         detail = f" ({status})" if status else ""
 
-        console.print(f"[red]✗[/red] {source.name} [dim]{detail} {exc}[/dim]")
+        error(f"{source.name} fetch failed{detail}", details=f"{type(exc).__name__}: {exc}")
         return False
 
 
@@ -233,7 +196,9 @@ def fetch_nearblocks_validators(source: Source, timeout: int = 30) -> bool:
             api_key = nearblocks_api_key()
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
-            with _nearblocks_urlopen(Request(request_url, headers=headers), timeout=timeout) as response:
+            with _nearblocks_urlopen(
+                Request(request_url, headers=headers), timeout=timeout, source=source,
+            ) as response:
                 raw = response.read()
             if not raw.strip():
                 raise ValueError(f"Empty response on validator page {page_number + 1}")
@@ -268,7 +233,7 @@ def fetch_nearblocks_validators(source: Source, timeout: int = 30) -> bool:
         json.JSONDecodeError, ValueError,
     ) as exc:
         status_text = f" (HTTP {exc.code})" if isinstance(exc, HTTPError) else ""
-        console.print(f"[red]✗[/red] {source.name} [dim]{status_text} {exc}[/dim]")
+        error(f"{source.name} fetch failed{status_text}", details=f"{type(exc).__name__}: {exc}")
         return False
 
 
@@ -320,7 +285,7 @@ def fetch_binance_klines(source: Source, timeout: int = 30, today: date | None =
             })
             request_url = urlunsplit((parts.scheme, parts.netloc, parts.path, params, ""))
             request = Request(request_url, method="GET", headers={"Accept": "application/json"})
-            with urlopen(request, timeout=timeout) as response:
+            with _tracked_urlopen(source, request, timeout) as response:
                 payload = json.loads(response.read())
             if not isinstance(payload, list):
                 raise ValueError("Binance Kline response must be a list")
@@ -353,7 +318,7 @@ def fetch_binance_klines(source: Source, timeout: int = 30, today: date | None =
     ) as exc:
         status = f"HTTP {exc.code}" if isinstance(exc, HTTPError) else ""
         detail = f" ({status})" if status else ""
-        console.print(f"[red]✗[/red] {source.name} [dim]{detail} {exc}[/dim]")
+        error(f"{source.name} fetch failed{detail}", details=f"{type(exc).__name__}: {exc}")
         return False
 
 
@@ -376,7 +341,7 @@ def fetch_bigquery(source: Source) -> bool:
         }
         return collectors[source.name](raw_path(source))
     except Exception as exc:
-        console.print(f"[red]✗[/red] {source.name} [dim]{exc}[/dim]")
+        error(f"{source.name} collection failed ({type(exc).__name__})", details=str(exc))
         return False
 
 
@@ -387,7 +352,7 @@ def fetch_buyback_wallet_balance(source: Source, timeout: float = 30) -> bool:
 
         return collect_buyback_wallet_balance(source, timeout=timeout)
     except Exception as exc:
-        console.print(f"[red]✗[/red] {source.name} [dim]{type(exc).__name__}: {exc}[/dim]")
+        error(f"{source.name} fetch failed ({type(exc).__name__})", details=str(exc))
         return False
 
 
@@ -400,10 +365,15 @@ def _fetch_order(sources: tuple[Source, ...]) -> tuple[Source, ...]:
     )
 
 
-def fetch_all(sources: tuple[Source, ...] = SOURCES) -> bool:
+def fetch_all(
+    sources: tuple[Source, ...] = SOURCES,
+    *,
+    failures: list[str] | None = None,
+) -> bool:
     """Attempt every source and isolate failures to the affected dataset."""
 
     all_succeeded = True
+    failed_sources: list[str] = []
     ordered_sources = _fetch_order(sources)
     with Progress(
         SpinnerColumn(style="bright_green"), TextColumn("[bold]{task.description}"),
@@ -414,6 +384,16 @@ def fetch_all(sources: tuple[Source, ...] = SOURCES) -> bool:
         for source in ordered_sources:
             progress.update(task, description=f"Fetching {source.name}")
             try:
+                cooldown = request_cooldown(source)
+                if cooldown is not None:
+                    seconds = int(cooldown.total_seconds())
+                    wait_text = (f"{seconds // 3600}h {(seconds % 3600) // 60}m"
+                                 if seconds >= 3600 else f"{max((seconds + 59) // 60, 1)}m")
+                    console.print(
+                        f"[dim]↷ {source.name}: last request is still fresh · next request in {wait_text}[/dim]"
+                    )
+                    progress.advance(task)
+                    continue
                 if source.provider is SourceProvider.BIGQUERY:
                     succeeded = fetch_bigquery(source)
                 elif source.name == SourceName.FASTNEAR_DAILY_ACTIVE_VALIDATOR_STAKE:
@@ -429,17 +409,41 @@ def fetch_all(sources: tuple[Source, ...] = SOURCES) -> bool:
                 else:
                     succeeded = fetch_json(source)
             except Exception as exc:
-                console.print(f"[red]✗[/red] {source.name} [dim]{type(exc).__name__}: {exc}[/dim]")
+                error(f"{source.name} fetch failed ({type(exc).__name__})", details=str(exc))
                 succeeded = False
+            if not succeeded:
+                failed_sources.append(source.name.value)
+                request_failed_if_needed(
+                    source, RuntimeError("Fetch or collection did not complete successfully"),
+                )
             all_succeeded = all_succeeded and succeeded
             progress.advance(task)
+    if failures is not None:
+        failures.extend(failed_sources)
     return all_succeeded
+
+
+def report_fetch_failures(failed_sources: list[str]) -> None:
+    """Print actionable retry guidance after the pipeline has finished."""
+    if not failed_sources:
+        return
+    console.print()
+    console.print(f"[bold yellow]Fetch incomplete · {len(failed_sources)} source(s)[/bold yellow]")
+    for source_name in failed_sources:
+        console.print(f"  [yellow]•[/yellow] {source_name}")
+    console.print(
+        "[dim]You can retry the missing data by running [bold]py scripts/main.py[/bold] again. "
+        "Successful sources remain on cooldown; failed sources are eligible for retry.[/dim]"
+    )
 
 
 def main() -> int:
     """Run the raw data collection phase."""
 
-    return 0 if fetch_all() else 1
+    failures: list[str] = []
+    succeeded = fetch_all(failures=failures)
+    report_fetch_failures(failures)
+    return 0 if succeeded else 1
 
 
 if __name__ == "__main__":

@@ -35,32 +35,33 @@ const methods = computed(() => doc('dashboard.json')?.methodologies)
 const latestSupply = computed(() => supplyRows.value.at(-1))
 const number = (value: unknown) => value == null || value === '' || !Number.isFinite(Number(value)) ? null : Number(value)
 const pct = (value: unknown) => value == null ? '—' : formatPercent(value as number | string)
+const rate = (value: unknown) => {
+  const amount = number(value)
+  return amount == null ? '—' : `${amount.toFixed(2)}%`
+}
 
 const economicChart = computed(() => ({ daily: { USD: [
   { name: 'NEAR Intents volume', type: 'line' as const, color: '#b4f273', area: true, data: intentRows.value.map((row: any) => [row.date, number(row.volume_usd)]) },
   { name: 'NEAR Intents revenue', type: 'line' as const, color: '#c3a5ff', yAxisIndex: 1, data: intentRows.value.map((row: any) => [row.date, number(row.revenue_usd)]) },
-  { name: 'NEAR Protocol revenue', type: 'line' as const, color: '#79c8ee', yAxisIndex: 1, data: revenueRows.value.map((row: any) => [row.date, number(row.revenue_usd)]) },
+  { name: 'NEAR ecosystem revenue', type: 'line' as const, color: '#79c8ee', yAxisIndex: 1, data: revenueRows.value.map((row: any) => [row.date, number(row.revenue_usd)]) },
 ] } }))
 const captureChart = computed(() => makeSeries({ daily: { items: intentRows.value } }, [
   { key: 'revenue_capture_rate_30d_pct', label: '30-day revenue capture rate', type: 'line', color: '#c3a5ff', valueFormat: 'percent' },
 ]))
 const issuanceChart = computed(() => ({ daily: { NEAR: [
-  { name: 'Estimated gross issuance', type: 'bar' as const, color: '#f5c978', data: issuanceRows.value.map((row: any) => [row.date, number(row.gross_issuance_near)]) },
-  { name: 'Net fee burn', type: 'bar' as const, color: '#79c8ee', data: issuanceRows.value.map((row: any) => [row.date, number(row.net_burn_near)]) },
+  { name: 'Estimated gross issuance', type: 'line' as const, color: '#f5c978', data: issuanceRows.value.map((row: any) => [row.date, number(row.gross_issuance_near)]) },
+  { name: 'Net fee burn', type: 'line' as const, color: '#79c8ee', data: issuanceRows.value.map((row: any) => [row.date, number(row.net_burn_near)]) },
 ] } }))
 const inflationChart = computed(() => ({ daily: { Percent: [
   { name: 'Annualized net inflation · 30D', type: 'line' as const, color: '#ff9f6e', valueFormat: 'percent' as const, data: (doc('tokenomics/daily_tokenomics.json')?.items ?? []).map((row: any) => [row.date, number(row.net_inflation_30d_annualized_pct)]) },
 ] } }))
+const buybackPalette = ['#b4f273', '#79c8ee', '#c3a5ff', '#f5c978', '#ff9f6e', '#7bd6c1']
 const buybackChart = computed(() => {
-  const types = [
-    { key: 'intents_transfer', label: 'NEAR Intents' },
-    { key: 'frontend_revenue', label: 'Frontend Revenue' },
-    { key: 'oneclick_and_other_revenue', label: '1Click & Other Revenue' },
-  ]
+  const types = [...new Set(buybackRows.value.map((row: any) => row.transfer_type).filter((type: any) => typeof type === 'string'))].sort()
   return { daily: { NEAR: types.map((type, index) => ({
-    name: type.label, type: 'bar' as const, color: ['#b4f273', '#79c8ee', '#c3a5ff'][index],
+    name: type, type: 'bar' as const, color: buybackPalette[index % buybackPalette.length],
     stack: 'buyback-inflow',
-    data: buybackRows.value.filter((row: any) => row.transfer_type === type.key).map((row: any) => [row.date, number(row.total_inflow_near)]),
+    data: buybackRows.value.filter((row: any) => row.transfer_type === type).map((row: any) => [row.date, number(row.total_inflow_near)]),
   })) } }
 })
 const priceChart = computed(() => ({ daily: { USD: [
@@ -94,16 +95,16 @@ const stablecoinChart = computed(() => ({ daily: { USD: [{
   <PageLoadingSkeleton v-if="pending || !data" :metrics="6" :charts="4" />
   <DataLoadError v-else-if="error" title="Dashboard data could not be loaded" :message="error.message" :retrying="pending" @retry="refresh" />
   <template v-else>
-    <PageHeading eyebrow="BEYOND NETWORK GROWTH" title="NEAR Investment Thesis" description="Is ecosystem growth turning into sustainable economic value for NEAR holders?" :updated-at="doc('dashboard.json')?.latest_data_update" />
+    <PageHeading eyebrow="BEYOND NETWORK GROWTH" title="NEAR Investment Thesis" description="Does NEAR’s ecosystem growth translate into durable economic value and meaningful value capture?" :updated-at="doc('dashboard.json')?.latest_data_update" />
 
     <section class="dashboard-thesis-section overview-thesis-section">
       <div class="section-title-row dashboard-section-title"><div><h2>Investment indicators</h2><p>Core indicators of valuation, value capture, supply expansion, and participation.</p></div></div>
       <div class="metric-grid dashboard-metrics dashboard-metrics-six">
         <MetricCard label="Market cap" :value="formatCurrency(tokenomics?.metrics?.market_cap, 'USD', 2)" :change-label="''" :icon="ChartNoAxesCombined" tone="violet" />
         <MetricCard label="NEAR price" :value="formatCurrency(tokenomics?.metrics?.near_price?.value, 'USD', 3)" :change="pct(tokenomics?.metrics?.change_24h)" change-label="24h" :icon="CircleDollarSign" tone="green" />
-        <MetricCard label="Annualized net inflation · 30D" :value="pct(tokenomics?.metrics?.net_inflation_30d_annualized_pct)" :change-label="''" :icon="Activity" tone="amber" :methodology="methods?.tokenomics?.net_inflation" />
-        <MetricCard label="Burn coverage · 30D" :value="pct(tokenomics?.metrics?.burn_offset_30d_pct)" :change-label="''" :icon="Coins" tone="blue" :methodology="methods?.tokenomics?.burn_coverage" />
-        <MetricCard label="Staking ratio" :value="pct(tokenomics?.metrics?.staking_ratio)" detail="of circulating supply" :icon="Shield" tone="green" :methodology="methods?.tokenomics?.staking" />
+        <MetricCard label="Annualized net inflation · 30D" :value="rate(tokenomics?.metrics?.net_inflation_30d_annualized_pct)" :change-label="''" :icon="Activity" tone="amber" :methodology="methods?.tokenomics?.net_inflation" />
+        <MetricCard label="Burn coverage · 30D" :value="rate(tokenomics?.metrics?.burn_offset_30d_pct)" :change-label="''" :icon="Coins" tone="blue" :methodology="methods?.tokenomics?.burn_coverage" />
+        <MetricCard label="Staking ratio" :value="rate(tokenomics?.metrics?.staking_ratio)" detail="of circulating supply" :change-label="''" :icon="Shield" tone="green" :methodology="methods?.tokenomics?.staking" />
         <MetricCard label="NEAR Intents volume · 30D" :value="formatCurrency(intents?.key_metrics?.volume_usd?.total_30d, 'USD', 1)" :change-label="''" :icon="Layers3" tone="violet" :methodology="methods?.near_intents?.volume" />
       </div>
     </section>
@@ -111,28 +112,28 @@ const stablecoinChart = computed(() => ({ daily: { USD: [{
     <section class="dashboard-thesis-section">
       <div class="section-title-row dashboard-section-title"><div><h2>Economic value vs. supply expansion</h2><p>Compare ecosystem activity and reported revenue with issuance, fee burn, and net inflation.</p></div><NuxtLink to="/intents" class="panel-link">Intents analysis <ArrowRight :size="13" /></NuxtLink></div>
       <div class="metric-grid dashboard-metrics dashboard-metrics-economic">
-        <MetricCard label="Protocol revenue · 30D" :value="formatCurrency(protocolRevenue?.total_30d, 'USD', 0)" :change-label="''" :icon="ChartNoAxesCombined" tone="blue" />
-        <MetricCard label="NEAR Intents revenue · 30D" :value="formatCurrency(intents?.key_metrics?.revenue_usd?.total_30d, 'USD', 0)" :change-label="''" :icon="Coins" tone="violet" />
-        <MetricCard label="Revenue capture · 30D" :value="pct(intents?.key_metrics?.revenue_capture_rate_30d_pct?.value)" :detail="`As of ${intents?.key_metrics?.revenue_capture_rate_30d_pct?.date ?? '—'}`" :change-label="''" :icon="Activity" tone="green" :methodology="methods?.near_intents?.revenue_capture_rate_30d" />
+        <MetricCard label="NEAR ecosystem revenue · 30D" :value="formatCurrency(protocolRevenue?.total_30d, 'USD', 1, 1)" :change-label="''" :icon="ChartNoAxesCombined" tone="blue" />
+        <MetricCard label="NEAR Intents revenue · 30D" :value="formatCurrency(intents?.key_metrics?.revenue_usd?.total_30d, 'USD', 1, 1)" :change-label="''" :icon="Coins" tone="violet" />
+        <MetricCard label="NEAR Intents revenue capture · 30D" :value="rate(intents?.key_metrics?.revenue_capture_rate_30d_pct?.value)" :detail="`As of ${intents?.key_metrics?.revenue_capture_rate_30d_pct?.date ?? '—'}`" :change-label="''" :icon="Activity" tone="green" :methodology="methods?.near_intents?.revenue_capture_rate_30d" />
         <MetricCard label="Estimated gross issuance · 30D" :value="`${formatCompact(tokenomics?.metrics?.gross_issuance_30d_near, 2)} NEAR`" :change-label="''" :icon="TrendingUp" tone="amber" :methodology="methods?.tokenomics?.supply_dynamics" />
         <MetricCard label="Net fee burn · 30D" :value="`${formatCompact(tokenomics?.metrics?.net_burn_30d_near, 2)} NEAR`" :change-label="''" :icon="Coins" tone="blue" :methodology="methods?.tokenomics?.net_burn" />
       </div>
       <div class="overview-grid dashboard-chart-grid">
-        <AnalyticsChart title="Activity and reported revenue" subtitle="NEAR Intents volume and protocol revenue · USD · dual scale" :datasets="economicChart" initial-period="daily" :height="280" :methodology="[methods?.near_intents?.volume, methods?.near_intents?.revenue].filter(Boolean)" />
+        <AnalyticsChart title="Activity and reported revenue" subtitle="NEAR Intents volume and NEAR ecosystem revenue · USD · dual scale" :datasets="economicChart" initial-period="daily" :height="280" :methodology="[methods?.near_intents?.volume, methods?.near_intents?.revenue].filter(Boolean)" />
         <AnalyticsChart title="Revenue capture rate" subtitle="Trailing 30-day NEAR Intents revenue relative to gross fees" :datasets="captureChart" initial-period="daily" :height="280" :methodology="methods?.near_intents?.revenue_capture_rate_30d" />
       </div>
       <div class="overview-grid dashboard-chart-grid">
         <AnalyticsChart title="Issuance and net fee burn" subtitle="Daily flows · NEAR · last 180 days" :datasets="issuanceChart" initial-period="daily" :height="260" :methodology="[methods?.tokenomics?.supply_dynamics, methods?.tokenomics?.net_burn].filter(Boolean)" />
         <AnalyticsChart title="Annualized net inflation" subtitle="Trailing 30-day total supply growth, annualized" :datasets="inflationChart" initial-period="daily" :height="260" :methodology="methods?.tokenomics?.net_inflation" />
       </div>
-      <p class="dashboard-source-note">Protocol revenue and Intents volume are reported USD flows and are not directly additive. Gross issuance is estimated from net supply change plus net fee burn; net inflation is derived from total-supply snapshots and includes burn effects.</p>
+      <p class="dashboard-source-note">NEAR chain &amp; app revenue covers DefiLlama's tracked chain and protocol listings. It includes the NEAR Intents entry, so it overlaps with the Intents-specific revenue card and should not be added to it. Gross issuance is estimated from net supply change plus net fee burn; net inflation is derived from total-supply snapshots and includes burn effects.</p>
     </section>
 
     <section class="dashboard-thesis-section">
-      <div class="section-title-row dashboard-section-title"><div><h2>Buyback wallet inflows</h2><p>Observed deposits grouped by attributed source and transfer type, shown separately from completed market purchases.</p></div><NuxtLink to="/tokenomics" class="panel-link">Tokenomics details <ArrowRight :size="13" /></NuxtLink></div>
+      <div class="section-title-row dashboard-section-title"><div><h2>Buyback wallet inflows</h2><p>Observed deposits grouped by attributed source and transfer type.</p></div><NuxtLink to="/tokenomics" class="panel-link">Tokenomics details <ArrowRight :size="13" /></NuxtLink></div>
       <div class="overview-grid buyback-overview-grid">
         <AnalyticsChart title="Daily wallet inflows by source" subtitle="NEAR inflows grouped by attributed source · stacked · last 180 days" :datasets="buybackChart" initial-period="daily" :height="275" :methodology="methods?.tokenomics?.buybacks" />
-        <MetricCard label="Buyback wallet · liquid balance" :value="`${formatCompact(tokenomics?.metrics?.buyback_wallet_balance_near, 2)} NEAR`" :detail="`RPC snapshot · ${tokenomics?.metrics?.buyback_wallet_balance_date ?? 'date unavailable'}`" :change-label="''" :icon="Wallet" tone="green" value-size="large" body-align="center" mobile-body-align="center" :methodology="methods?.tokenomics?.buybacks" />
+        <MetricCard label="Buyback wallet · liquid balance" :value="`${formatCompact(tokenomics?.metrics?.buyback_wallet_balance_near, 2)} NEAR`" :detail="`As of ${tokenomics?.metrics?.buyback_wallet_balance_date ?? 'date unavailable'}`" :change-label="''" :icon="Wallet" tone="green" value-size="large" body-align="center" mobile-body-align="center" :methodology="methods?.tokenomics?.buybacks" />
       </div>
       <p class="dashboard-source-note">Wallet inflows show funds transferred to the multisig. They do not verify whether or when NEAR was purchased, executed, or burned.</p>
     </section>
@@ -141,9 +142,9 @@ const stablecoinChart = computed(() => ({ daily: { USD: [{
       <div class="section-title-row dashboard-section-title"><div><h2>Network security</h2><p>Active economic security and the current validator stake distribution.</p></div><NuxtLink to="/tokenomics" class="panel-link">Validator analysis <ArrowRight :size="13" /></NuxtLink></div>
       <div class="metric-grid dashboard-metrics dashboard-metrics-four">
         <MetricCard label="Total active stake" :value="`${formatCompact(tokenomics?.metrics?.total_active_stake, 2)} NEAR`" :change-label="''" :icon="Wallet" tone="green" />
-        <MetricCard label="Staking ratio · circulating supply" :value="pct(tokenomics?.metrics?.staking_ratio)" :change-label="''" :icon="Shield" tone="blue" />
+        <MetricCard label="Staking ratio · circulating supply" :value="rate(tokenomics?.metrics?.staking_ratio)" :change-label="''" :icon="Shield" tone="blue" />
         <MetricCard label="Active validators" :value="formatCompact(tokenomics?.metrics?.active_validators_count, 0)" :detail="`of ${formatCompact(tokenomics?.metrics?.total_validators_count, 0)} registered`" :icon="Activity" tone="amber" />
-        <MetricCard label="Top 10 stake share" :value="pct(tokenomics?.metrics?.top_10_stake_share)" :change-label="''" :icon="Coins" tone="violet" />
+        <MetricCard label="Top 10 stake share" :value="rate(tokenomics?.metrics?.top_10_stake_share)" :change-label="''" :icon="Coins" tone="violet" />
       </div>
       <p class="dashboard-source-note">Current validator metrics are a point-in-time NearBlocks snapshot. Historical active stake uses sampled daily RPC observations and is available in Tokenomics.</p>
     </section>
@@ -151,7 +152,7 @@ const stablecoinChart = computed(() => ({ daily: { USD: [{
     <section class="dashboard-thesis-section dashboard-context-section">
       <div class="section-title-row dashboard-section-title"><div><h2>Ecosystem activity &amp; liquidity</h2><p>Context for adoption and capital flows, alongside the core economic indicators above.</p></div><NuxtLink to="/network" class="panel-link">Network details <ArrowRight :size="13" /></NuxtLink></div>
       <div class="metric-grid dashboard-metrics dashboard-metrics-six">
-        <MetricCard label="Transactions · 24h" :value="formatCompact(network?.key_metrics?.transactions?.value)" :change="pct(network?.key_metrics?.transactions?.change_24h_pct)" change-label="vs previous 24h" :icon="Activity" tone="green" />
+        <MetricCard label="Transactions · 24h" :value="formatCompact(network?.key_metrics?.transactions?.value, 1, 1)" :change="pct(network?.key_metrics?.transactions?.change_24h_pct)" change-label="vs previous 24h" :icon="Activity" tone="green" />
         <MetricCard label="Active accounts" :value="formatCompact(network?.key_metrics?.active_accounts?.value)" :change="pct(network?.key_metrics?.active_accounts?.change_24h_pct)" change-label="vs previous 24h" :icon="UsersRound" tone="blue" />
         <MetricCard label="Network throughput" :value="formatCompact(network?.network_stats?.tps)" detail="Transactions per second" :change-label="''" :icon="Zap" tone="amber" />
         <MetricCard label="Stablecoin supply" :value="formatCurrency(network?.key_metrics?.stablecoin_supply_usd?.value, 'USD', 1)" :change="pct(network?.key_metrics?.stablecoin_supply_usd?.change_30d_pct)" change-label="30D change" :icon="Coins" tone="violet" />
@@ -170,10 +171,9 @@ const stablecoinChart = computed(() => ({ daily: { USD: [{
     </section>
 
     <section class="dashboard-thesis-section dashboard-market-section">
-      <div class="section-title-row dashboard-section-title"><div><h2>Market &amp; supply context</h2><p>Price performance, valuation, and supply history · secondary to the core thesis indicators.</p></div><span class="market-summary-values">FDV {{ formatCurrency(tokenomics?.metrics?.fdv_usd, 'USD', 2) }} · Supply as of {{ latestSupply?.date ?? '—' }}</span></div>
-      <div class="metric-grid dashboard-metrics dashboard-metrics-three dashboard-market-metrics">
+      <div class="section-title-row dashboard-section-title"><div><h2>Market &amp; supply context</h2><p>Price performance and supply history · secondary to the core thesis indicators.</p></div></div>
+      <div class="metric-grid dashboard-metrics dashboard-metrics-two dashboard-market-metrics">
         <MetricCard label="Market cap" :value="formatCurrency(tokenomics?.metrics?.market_cap, 'USD', 2)" :change-label="''" :icon="ChartNoAxesCombined" tone="violet" />
-        <MetricCard label="Fully diluted valuation" :value="formatCurrency(tokenomics?.metrics?.fdv_usd, 'USD', 2)" :change-label="''" :icon="CircleDollarSign" tone="amber" :methodology="methods?.tokenomics?.fdv" />
         <MetricCard label="Circulating supply" :value="`${formatCompact(tokenomics?.metrics?.circulating_supply)} NEAR`" :detail="`Total ${formatCompact(tokenomics?.metrics?.total_supply)} NEAR`" :icon="Coins" tone="blue" />
       </div>
       <div class="overview-grid dashboard-chart-grid">

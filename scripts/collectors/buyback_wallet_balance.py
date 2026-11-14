@@ -8,7 +8,7 @@ from typing import Any
 
 from atomic_io import atomic_write_text
 from buybacks import BUYBACK_WALLET
-from console_ui import console
+from console_ui import console, error
 from rpc_clients.near import NearRpcClient
 from sources import Source, SourceName, get_source, raw_path
 
@@ -51,13 +51,13 @@ def collect_buyback_wallet_balance(
     source = source or get_source(SourceName.FASTNEAR_BUYBACK_WALLET_BALANCE)
     output = Path(output_path) if output_path is not None else raw_path(source)
     if source.url is None:
-        console.print("[yellow]![/yellow] Buyback wallet balance RPC endpoint is missing")
+        error("Buyback wallet balance RPC endpoint is not configured")
         return False
 
     last_error: Exception | None = None
     for attempt in range(attempts):
         try:
-            with NearRpcClient(source.url, timeout=timeout) as rpc:
+            with NearRpcClient(source.url, timeout=timeout, source=source) as rpc:
                 response = rpc.account(BUYBACK_WALLET, finality="final")
             account = _root(response)
             amount = _yocto(_field(account, "amount"), "amount")
@@ -96,5 +96,8 @@ def collect_buyback_wallet_balance(
                 console.print(f"[yellow]![/yellow] Buyback balance RPC retrying in {delay}s [dim]{exc}[/dim]")
                 sleep(delay)
 
-    console.print(f"[yellow]![/yellow] Buyback wallet balance unavailable [dim]{last_error}[/dim]")
+    error(
+        "Buyback wallet balance could not be fetched after retries",
+        details=f"{type(last_error).__name__}: {last_error}" if last_error else None,
+    )
     return False

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ChartNoAxesCombined, Coins, CircleDollarSign, TrendingUp, WalletCards, Flame, UsersRound } from '@lucide/vue'
-import { fetchAnalyticsOrEmpty, formatCompact, formatCurrency, formatPercent } from '~/composables/useAnalytics'
+import { fetchAnalyticsOrEmpty, formatCompact, formatCurrency, formatIdentifierLabel, formatPercent } from '~/composables/useAnalytics'
 const analyticsBaseUrl = useRuntimeConfig().public.analyticsBaseUrl as string
 
 const periods = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly']
@@ -86,7 +86,7 @@ const buybackPie = computed(() => ({
     name: 'Cumulative buyback inflow',
     type: 'pie' as const,
     data: (data.value?.['tokenomics/buyback_transfer_type_breakdown.json']?.observations ?? []).map((row: any) => ({
-      name: row.label,
+      name: formatIdentifierLabel(row.transfer_type),
       value: Number(row.total_inflow_near),
     })),
   }] },
@@ -120,22 +120,14 @@ const contractRewardsChart = computed(() => Object.fromEntries(periods.map((peri
     USD: [{ name: 'Contract rewards', type: 'bar', color: '#f5c978', data: rows.map((row: any) => [row.period ?? row.date, row.contract_rewards_usd]) }],
   }]
 })))
+const buybackPalette = ['#79c8ee', '#b4f273', '#f5c978', '#c3a5ff', '#ff9f6e', '#7bd6c1']
 const buybackChart = computed(() => Object.fromEntries(periods.map((period) => {
   const rows = data.value?.[`tokenomics/${period}_buyback_transfers.json`]?.observations ?? []
-  return [period, { NEAR: [
-    {
-      name: 'NEAR Intents', type: 'bar', color: '#79c8ee', stack: 'buybacks',
-      data: rows.filter((row: any) => row.transfer_type === 'intents_transfer').map((row: any) => [row.period ?? row.date, Number(row.total_inflow_near)]),
-    },
-    {
-      name: 'Frontend Revenue', type: 'bar', color: '#b4f273', stack: 'buybacks',
-      data: rows.filter((row: any) => row.transfer_type === 'frontend_revenue').map((row: any) => [row.period ?? row.date, Number(row.total_inflow_near)]),
-    },
-    {
-      name: '1Click & Other Revenue', type: 'bar', color: '#f5c978', stack: 'buybacks',
-      data: rows.filter((row: any) => row.transfer_type === 'oneclick_and_other_revenue').map((row: any) => [row.period ?? row.date, Number(row.total_inflow_near)]),
-    },
-  ] }]
+  const types = [...new Set(rows.map((row: any) => row.transfer_type).filter((type: any) => typeof type === 'string'))].sort()
+  return [period, { NEAR: types.map((type, index) => ({
+    name: formatIdentifierLabel(type), type: 'bar', color: buybackPalette[index % buybackPalette.length], stack: 'buybacks',
+    data: rows.filter((row: any) => row.transfer_type === type).map((row: any) => [row.period ?? row.date, Number(row.total_inflow_near)]),
+  })) }]
 })))
 const inflationChart = computed(() => ({
   daily: { NEAR: [{ name: 'Trailing 30D annualized net inflation', type: 'line' as const, color: '#b4f273', area: true,
@@ -153,10 +145,9 @@ function formatRate(value: number | string | null | undefined) {
   <DataLoadError v-else-if="error" title="Tokenomics data could not be loaded" :message="error.message" :retrying="pending" @retry="refresh" />
   <template v-else>
     <PageHeading title="Tokenomics" description="NEAR price, supply, and market indicators." :updated-at="snapshot?.updated_at" />
-    <div class="section-title-row tokenomics-section-title"><div><h2>Market value</h2><p>Spot market capitalization and fully diluted valuation · USD</p></div></div>
+    <div class="section-title-row tokenomics-section-title"><div><h2>Market capitalization</h2><p>Spot market capitalization · USD</p></div></div>
     <div class="metric-grid tokenomics-overview-metrics">
       <MetricCard label="Market cap" :value="formatCurrency(snapshot?.metrics?.market_cap, 'USD', 3)" :icon="ChartNoAxesCombined" tone="green" :change-label="''" />
-      <MetricCard label="Fully diluted valuation (FDV)" :value="formatCurrency(snapshot?.metrics?.fdv_usd, 'USD', 3)" :icon="ChartNoAxesCombined" tone="violet" :change-label="''" :methodology="methodologies?.tokenomics?.fdv" />
     </div>
     <div class="section-title-row tokenomics-section-title"><div><h2>NEAR price</h2><p>Daily market price with 7-day and 30-day trend lines · USD</p></div></div>
     <div class="overview-grid tokenomics-metric-chart-layout">
@@ -176,7 +167,7 @@ function formatRate(value: number | string | null | undefined) {
     </div>
     <div class="section-title-row tokenomics-section-title"><div><h2>Staking &amp; validators</h2><p>Active network stake, validator concentration, and production</p></div></div>
     <div class="metric-grid validator-metric-grid">
-      <MetricCard label="Total active stake" :value="`${formatCompact(snapshot?.metrics?.total_active_stake, 2)} NEAR`" :icon="WalletCards" tone="green" :change-label="''" :methodology="methodologies?.tokenomics?.staking" />
+      <MetricCard label="Total active stake" :value="`${formatCompact(snapshot?.metrics?.total_active_stake, 2)} NEAR`" :detail="`As of ${snapshot?.metrics?.total_active_stake_as_of_date ?? '—'}`" :icon="WalletCards" tone="green" :change-label="''" :methodology="methodologies?.tokenomics?.staking" />
       <MetricCard label="Staking ratio · circulating supply" :value="formatRate(snapshot?.metrics?.staking_ratio)" :icon="ChartNoAxesCombined" tone="blue" :change-label="''" :methodology="methodologies?.tokenomics?.staking" />
       <MetricCard label="Active validators" :value="formatCompact(snapshot?.metrics?.active_validators_count, 0)" :icon="UsersRound" tone="violet" :change-label="''" :methodology="methodologies?.tokenomics?.validators" />
       <MetricCard label="Top 10 stake share" :value="formatRate(snapshot?.metrics?.top_10_stake_share)" :icon="ChartNoAxesCombined" tone="amber" :change-label="''" :methodology="methodologies?.tokenomics?.validators" />
@@ -185,11 +176,11 @@ function formatRate(value: number | string | null | undefined) {
     <ValidatorTable :items="snapshot?.validators?.items ?? []" />
     <div class="section-title-row tokenomics-section-title"><div><h2>NEAR Intents buybacks</h2><p>Daily transfers into the buyback multisig, grouped by transfer source · NEAR</p></div></div>
     <div class="overview-grid tokenomics-metric-chart-layout">
-      <AnalyticsChart title="Buyback transfers by source" subtitle="Native NEAR and wNEAR inflows · stacked by transfer type" :datasets="buybackChart" initial-period="daily" :height="340" :methodology="methodologies?.tokenomics?.buybacks" />
+      <AnalyticsChart title="Buyback transfers by source" subtitle="Inflows in NEAR" :datasets="buybackChart" initial-period="daily" :height="340" :methodology="methodologies?.tokenomics?.buybacks" />
       <div class="tokenomics-buyback-side">
         <AnalyticsChart title="Buyback flow breakdown" subtitle="Cumulative inflow by transfer type · NEAR" :datasets="buybackPie" :height="260" :methodology="methodologies?.tokenomics?.buybacks" />
         <div class="metric-grid tokenomics-chart-metrics">
-          <MetricCard label="Buyback wallet · liquid balance" :value="`${formatCompact(snapshot?.metrics?.buyback_wallet_balance_near, 2)} NEAR`" :detail="snapshot?.metrics?.buyback_wallet_balance_date ?? '—'" :icon="WalletCards" tone="green" :change-label="''" mobile-body-align="left" body-align="center" :methodology="methodologies?.tokenomics?.buybacks" />
+          <MetricCard label="Buyback wallet · liquid balance" :value="`${formatCompact(snapshot?.metrics?.buyback_wallet_balance_near, 2)} NEAR`" :detail="`As of ${snapshot?.metrics?.buyback_wallet_balance_date ?? '—'}`" :icon="WalletCards" tone="green" :change-label="''" mobile-body-align="left" body-align="center" :methodology="methodologies?.tokenomics?.buybacks" />
         </div>
       </div>
     </div>

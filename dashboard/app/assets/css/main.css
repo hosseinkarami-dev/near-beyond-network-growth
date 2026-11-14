@@ -161,6 +161,7 @@ h1, h2, h3, p { margin-top: 0; }
 .dashboard-thesis-section { margin-bottom: 24px; }
 .section-title-row.dashboard-section-title { margin-top: 25px; }
 .metric-grid.dashboard-metrics { gap: 12px; }
+.metric-grid.dashboard-metrics-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .metric-grid.dashboard-metrics-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .metric-grid.dashboard-metrics-four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .metric-grid.dashboard-metrics-six { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -212,7 +213,10 @@ h1, h2, h3, p { margin-top: 0; }
 .research-method code, .research-source code, .research-source-grid code { padding: 1px 4px; border-radius: 4px; background: var(--surface-raised); color: var(--text); font-size: 11px; }
 .research-method .research-source, .research-section .research-source { margin: 11px 0 0; color: var(--muted); font-size: 11px; line-height: 1.65; }
 .research-findings-grid { margin-top: 13px; }
-.research-findings-notes { display: grid; gap: 8px; margin: 14px 0; padding-left: 20px; color: var(--text-secondary); font-size: 12px; line-height: 1.65; }
+.research-findings-notes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 14px 0; color: var(--text-secondary); font-size: 12px; line-height: 1.65; }
+.research-findings-notes article { padding: 13px 15px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.research-findings-notes h3 { margin: 0 0 6px; color: var(--text); font-size: 13px; }
+.research-findings-notes p { margin: 0; }
 .research-link-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .research-link-row a { padding: 7px 9px; border: 1px solid var(--border); border-radius: 7px; }
 .research-implications-grid, .research-source-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
@@ -491,7 +495,7 @@ h1, h2, h3, p { margin-top: 0; }
   .metric-grid.dashboard-metrics-six { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .metric-grid.dashboard-metrics-economic { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .overview-grid.buyback-overview-grid { grid-template-columns: minmax(0, 1fr); }
-  .research-method-grid, .research-implications-grid, .research-source-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .research-method-grid, .research-implications-grid, .research-source-grid, .research-findings-notes { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .research-framework-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .overview-grid.tokenomics-metric-chart-layout { grid-template-columns: minmax(0, 1fr); }
   .tokenomics-burn-chart-grid { grid-template-columns: minmax(0, 1fr); }

@@ -7,9 +7,9 @@
     "predev": "npm run sync:data",
     "dev": "nuxt dev",
     "prebuild": "npm run sync:data",
-    "build": "nuxt build",
+    "build": "node scripts/run-nuxt.mjs build",
     "pregenerate": "npm run sync:data",
-    "generate": "nuxt generate",
+    "generate": "node scripts/run-nuxt.mjs generate",
     "preview": "nuxt preview"
   },
   "dependencies": {

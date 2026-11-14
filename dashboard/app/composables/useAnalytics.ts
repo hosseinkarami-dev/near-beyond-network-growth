@@ -6,6 +6,19 @@ export function analyticsDataUrl(baseUrl: string, path: string) {
   return `${base}/${relativePath}`
 }
 
+export function formatIdentifierLabel(value: string | null | undefined) {
+  if (!value) return ''
+  const normalized = value.trim()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+  return normalized.split(' ')
+    .filter(Boolean)
+    .map((word) => word === word.toLocaleLowerCase('en-US')
+      ? word.charAt(0).toLocaleUpperCase('en-US') + word.slice(1)
+      : word)
+    .join(' ')
+}
+
 export async function fetchAnalytics<T extends AnalyticsDocument = AnalyticsDocument>(path: string, baseUrl: string) {
   return await $fetch<T>(analyticsDataUrl(baseUrl, path))
 }
@@ -19,23 +32,28 @@ export async function fetchAnalyticsOrEmpty(path: string, baseUrl: string) {
   }
 }
 
-export function formatCompact(value: number | string | null | undefined, maximumFractionDigits = 1) {
+export function formatCompact(
+  value: number | string | null | undefined,
+  maximumFractionDigits = 1,
+  minimumFractionDigits = 0,
+) {
   if (value == null || value === '') return '—'
   const amount = Number(value)
   if (!Number.isFinite(amount)) return '—'
   return new Intl.NumberFormat('en-US', {
     notation: amount >= 100_000 ? 'compact' : 'standard',
+    minimumFractionDigits,
     maximumFractionDigits,
   }).format(amount)
 }
 
-export function formatCurrency(value: number | string | null | undefined, currency = 'USD', maximumFractionDigits = 2) {
+export function formatCurrency(value: number | string | null | undefined, currency = 'USD', maximumFractionDigits = 2, minimumFractionDigits = 0) {
   if (value == null || value === '') return '—'
   const amount = Number(value)
   if (!Number.isFinite(amount)) return '—'
   return new Intl.NumberFormat('en-US', {
     style: 'currency', currency, notation: amount >= 100_000 ? 'compact' : 'standard',
-    maximumFractionDigits,
+    minimumFractionDigits, maximumFractionDigits,
   }).format(amount)
 }
 

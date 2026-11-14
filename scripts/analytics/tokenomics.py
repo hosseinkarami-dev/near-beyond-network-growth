@@ -1,7 +1,7 @@
 """Build tokenomics price history and snapshot from normalized source data."""
 
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, localcontext
 from pathlib import Path
 from typing import Any
@@ -372,6 +372,7 @@ def build_tokenomics_analytics(
         "total_staked": None,
         "current_validators_count": None,
         "total_validators_count": None,
+        "total_active_stake_as_of_date": None,
     })
     validators_summary_metrics = {}
     validators_path = normalized_root / VALIDATORS_INFO_PATH
@@ -380,6 +381,14 @@ def build_tokenomics_analytics(
         validators_summary_metrics = validators_summary.get("metrics")
         if not isinstance(validators_summary_metrics, dict):
             raise ValueError("validator summary metrics must be an object")
+        validators_updated_at = validators_summary.get("updated_at")
+        if isinstance(validators_updated_at, str):
+            try:
+                metrics["total_active_stake_as_of_date"] = datetime.fromisoformat(
+                    validators_updated_at.replace("Z", "+00:00")
+                ).date().isoformat()
+            except ValueError:
+                pass
         for field in ("total_staked", "current_validators_count", "total_validators_count"):
             metric = validators_summary_metrics.get(field)
             value = metric.get("value") if isinstance(metric, dict) else None

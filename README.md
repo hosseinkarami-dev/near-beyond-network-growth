@@ -1,4 +1,4 @@
-# NEARscope — Beyond Network Growth
+# NEARscope: Beyond Network Growth
 
 NEARscope is a data pipeline and dashboard for looking past transaction counts. It asks whether activity across NEAR is matched by fees and revenue, whether any of that value is captured in ways relevant to the token, and how issuance, burns, and staking fit into the picture.
 
@@ -155,8 +155,6 @@ These terms describe different things, so keep their definitions in mind when co
 - **Staking ratio · circulating supply** divides NearBlocks' current active stake by the latest available circulating supply. Their observation dates can differ. The historical chart uses active stake divided by total supply on each date, so it shows a different ratio.
 - **Top 10 stake share** is the combined stake of the ten largest active validators divided by total active stake. It measures concentration, not validator ownership or independence.
 - **Buyback-wallet inflow** means NEAR was transferred to `buybacks.multisignature.near`. It does not prove a purchase happened. The wallet's liquid balance is a separate finalized RPC reading, not the sum of historical inflows.
-
-Total-supply observations have approximate FLOAT64 precision. Historical RPC stake totals are summed in integer YoctoNEAR before conversion to NEAR. Period-end supply and stake are snapshots; fee, burn, issuance, and wallet-flow series are period sums. Period totals are not cumulative balances.
 
 ## Data providers
 

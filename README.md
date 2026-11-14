@@ -140,7 +140,7 @@ Use `python3` instead of `py` on macOS or Linux. `build_analytics.py` syncs its 
 - `scripts/analytics/` contains the domain calculations and output writers
 - `data/analytics/` holds the generated datasets read by the dashboard
 - `dashboard/app/pages/` contains the Overview, Research & Methodology, Network, Tokenomics, Intents, and Protocols pages
-- [`docs/architecture.md`](docs/architecture.md), [`docs/analytics/network.md`](docs/analytics/network.md), and [`docs/analytics/tokenomics.md`](docs/analytics/tokenomics.md) describe the pipeline and dataset specific details
+- [`docs/architecture.md`](docs/architecture.md) and the [Analytics guides](docs/analytics/README.md) describe the pipeline and each dataset's definitions and limits
 
 ## Reading the main numbers
 

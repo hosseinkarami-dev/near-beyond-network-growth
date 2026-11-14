@@ -51,8 +51,8 @@ Calculations use `Decimal` and do not use binary floating point. Rounding occurs
 | Count metrics and rolling sums | Integers |
 | Source NEAR/USDT close (`near_usd_price`) | 8 decimal places, retained for auditability |
 
-## Inputs and current overlap
+## Inputs and coverage
 
 Daily inputs are NearBlocks transactions, transaction fees, active accounts, active contracts, and new contracts; DefiLlama TVL; and Binance NEARUSDT daily close. All are interpreted as UTC dates. Dates and timestamps are validated, and duplicate dates in a source fail the build.
 
-At the inspected input revision, the union contains 2,290 distinct dates. The date inner join leaves 190 dates, from 2021-08-20 through 2022-02-25. The sources contain 2,289 rows each for the five NearBlocks metrics, 1,906 TVL rows, and 500 price rows. `new_contracts` contains 25 null observations in its full history; none falls in the shared date range. The final joined rows have no null or invalid values. USDT is a proxy, not a guarantee of exact USD parity.
+Because the daily dataset is an exact inner join, its start and end dates can change when any upstream source gains or loses observations. The builder reports source row counts, dates before and after the join, exclusions, and the final date range in its console summary. Read the generated `daily_metrics.json` for the current coverage rather than relying on a range copied into this guide. USDT is a proxy, not a guarantee of exact USD parity.

@@ -103,7 +103,7 @@ const stablecoinChart = computed(() => ({ daily: { USD: [{
         <MetricCard label="Market cap" :value="formatCurrency(tokenomics?.metrics?.market_cap, 'USD', 2)" :change-label="''" :icon="ChartNoAxesCombined" tone="violet" />
         <MetricCard label="NEAR price" :value="formatCurrency(tokenomics?.metrics?.near_price?.value, 'USD', 3)" :change="pct(tokenomics?.metrics?.change_24h)" change-label="24h" :icon="CircleDollarSign" tone="green" />
         <MetricCard label="Annualized net inflation · 30D" :value="rate(tokenomics?.metrics?.net_inflation_30d_annualized_pct)" :change-label="''" :icon="Activity" tone="amber" :methodology="methods?.tokenomics?.net_inflation" />
-        <MetricCard label="Burn coverage · 30D" :value="rate(tokenomics?.metrics?.burn_offset_30d_pct)" :change-label="''" :icon="Coins" tone="blue" :methodology="methods?.tokenomics?.burn_coverage" />
+        <MetricCard label="Burn coverage · 30D" :value="rate(tokenomics?.metrics?.burn_offset_30d_pct)" :detail="`Through ${tokenomics?.metrics?.latest_burn_coverage_date ?? '—'}`" :change-label="''" :icon="Coins" tone="blue" :methodology="methods?.tokenomics?.burn_coverage" />
         <MetricCard label="Staking ratio" :value="rate(tokenomics?.metrics?.staking_ratio)" detail="of circulating supply" :change-label="''" :icon="Shield" tone="green" :methodology="methods?.tokenomics?.staking" />
         <MetricCard label="NEAR Intents volume · 30D" :value="formatCurrency(intents?.key_metrics?.volume_usd?.total_30d, 'USD', 1)" :change-label="''" :icon="Layers3" tone="violet" :methodology="methods?.near_intents?.volume" />
       </div>

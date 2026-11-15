@@ -38,20 +38,6 @@ Collectors save provider responses in `data/raw/`. Normalizers validate and stan
 
 Generated JSON under `data/` and the dashboard's `public/data/` copy are local and ignored by Git. A fresh clone will not contain the project's collected results. Run the pipeline before expecting the dashboard to show populated charts.
 
-## Run the dashboard
-
-You need Node.js and npm. From the repository root:
-
-```powershell
-cd dashboard
-npm install
-npm run dev
-```
-
-Open the local address printed by Nuxt. The app loads JSON over HTTP, so opening a built HTML file directly with `file://` will not work.
-
-`npm run dev`, `npm run build`, and `npm run generate` copy the current `data/analytics/` files into `dashboard/public/data/analytics/` first. The `NUXT_PUBLIC_ANALYTICS_BASE_URL` setting changes the URL base the app reads from; its default is `/data/analytics`. To override it locally, copy `dashboard/.env.example` to `dashboard/.env` and set the value there.
-
 ## Collect and prepare data
 
 Python 3.11 or newer is required. Install dependencies from the repository root.
@@ -132,6 +118,20 @@ py scripts/build_analytics.py
 
 Use `python3` instead of `py` on macOS or Linux. `build_analytics.py` syncs its outputs to the dashboard when it finishes. If the dev server is already open, the copy is still updated; `npm run sync:data` in `dashboard/` is available for a manual sync.
 
+## Run the dashboard
+
+Once the data pipeline has produced `data/analytics/`, you can run the dashboard. You need Node.js and npm. From the repository root:
+
+```powershell
+cd dashboard
+npm install
+npm run dev
+```
+
+Open the local address printed by Nuxt. The app loads JSON over HTTP, so opening a built HTML file directly with `file://` will not work.
+
+`npm run dev`, `npm run build`, and `npm run generate` copy the current `data/analytics/` files into `dashboard/public/data/analytics/` first. The `NUXT_PUBLIC_ANALYTICS_BASE_URL` setting changes the URL base the app reads from; its default is `/data/analytics`. To override it locally, copy `dashboard/.env.example` to `dashboard/.env` and set the value there.
+
 ## Where to look
 
 - `scripts/sources.py` lists provider endpoints and raw-file locations
@@ -160,7 +160,7 @@ These terms describe different things, so keep their definitions in mind when co
 
 - **NearBlocks:** network activity and current validator snapshots.
 - **DefiLlama:** NEAR TVL and stablecoin supply, NEAR Intents volume/TVL/fees/revenue/holder revenue, broader NEAR revenue, and DEX volume.
-- **Google BigQuery public NEAR mainnet:** supply snapshots, `tokens_burnt`, contract-reward event audit, and transfers into the buyback multisig.
+- **Google BigQuery public NEAR mainnet:** supply snapshots, `tokens_burnt`, contract-reward event audit, and transfers into the buyback multisig. The available buyback transfer series begins on 2026-04-23 and groups inflows by source and transfer type.
 - **Binance:** daily NEARUSDT close, used as the project's USD price proxy.
 - **FastNEAR archival RPC:** historical active-validator stake and the wallet's finalized liquid balance.
 

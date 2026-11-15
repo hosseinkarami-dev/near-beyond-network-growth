@@ -211,8 +211,10 @@ h1, h2, h3, p { margin-top: 0; }
 .research-flow i { color: var(--green); font-style: normal; }
 .research-intro { margin-bottom: 13px; }
 .research-method-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.research-method { padding: 17px; }
+.research-method { position: relative; padding: 17px; }
 .research-method h3 { margin-top: 0; }
+.research-method > .methodology-trigger { position: absolute; top: 14px; right: 14px; z-index: 1; }
+.research-method h3 { padding-right: 34px; }
 .research-method p { margin-bottom: 9px; font-size: 12px; }
 .research-method code, .research-source code, .research-source-grid code { padding: 1px 4px; border-radius: 4px; background: var(--surface-raised); color: var(--text); font-size: 11px; }
 .research-method .research-source, .research-section .research-source { margin: 11px 0 0; color: var(--muted); font-size: 11px; line-height: 1.65; }
@@ -478,7 +480,11 @@ h1, h2, h3, p { margin-top: 0; }
 }
 @media (max-width: 760px) {
   .app-main { margin-left: 0; }
-  .sidebar { width: 275px; transform: translateX(-100%); transition: transform .2s ease; box-shadow: var(--shadow); }
+  .sidebar { width: 275px; max-height: 100dvh; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; transform: translateX(-100%); transition: transform .2s ease; box-shadow: var(--shadow); }
+  .sidebar::-webkit-scrollbar { width: 7px; }
+  .sidebar::-webkit-scrollbar-track { background: transparent; }
+  .sidebar::-webkit-scrollbar-thumb { border: 1px solid transparent; border-radius: 99px; background: var(--scrollbar-thumb); background-clip: padding-box; }
+  .sidebar::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); background-clip: padding-box; }
   .sidebar.sidebar-open { transform: translateX(0); }
   .sidebar-backdrop { display: block; position: fixed; inset: 0; z-index: 29; background: rgba(4, 8, 4, .52); backdrop-filter: blur(2px); }
   .mobile-menu { display: inline-flex; width: 32px; height: 32px; border-radius: 8px; margin-right: 11px; }

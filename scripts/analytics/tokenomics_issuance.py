@@ -67,16 +67,45 @@ def _window_metrics(
             context.prec = 50
             annualized = ((end_supply / start_supply) ** (Decimal(365) / Decimal(days)) - 1) * 100
 
-    interval = [start + timedelta(days=i) for i in range(1, days + 1)]
-    net_changes = [daily_supply_metrics.get(day, {}).get("daily_net_supply_change_near") for day in interval]
-    net_burn = [burn_rows.get(day, {}).get("net_burn_near") for day in interval]
-    gross_burn = [burn_rows.get(day, {}).get("gross_burn_near") for day in interval]
-    issuance = [daily_supply_metrics.get(day, {}).get("net_issuance_near") for day in interval]
-    burn_total = sum(net_burn, Decimal(0)) if all(v is not None for v in net_burn) else None
-    gross_burn_total = sum(gross_burn, Decimal(0)) if all(v is not None for v in gross_burn) else None
-    issuance_total = sum(issuance, Decimal(0)) if all(v is not None for v in issuance) else None
+    supply_interval = [start + timedelta(days=i) for i in range(1, days + 1)]
+    net_changes = [
+        daily_supply_metrics.get(day, {}).get("daily_net_supply_change_near")
+        for day in supply_interval
+    ]
+
+    # Flow metrics must stop at the latest day with both supply change and burn.
+    # The latest supply snapshot can arrive before that day's burn data is complete.
+    complete_flow_days = [
+        day for day, burn in burn_rows.items()
+        if day <= end
+        and burn.get("net_burn_near") is not None
+        and daily_supply_metrics.get(day, {}).get("net_issuance_near") is not None
+    ]
+    flow_end = max(complete_flow_days, default=None)
+    flow_start = flow_end - timedelta(days=days) if flow_end is not None else None
+    flow_start_supply = supplies.get(flow_start, {}).get("total_supply") if flow_start else None
+    flow_interval = (
+        [flow_start + timedelta(days=i) for i in range(1, days + 1)]
+        if flow_start is not None else []
+    )
+    net_burn = [burn_rows.get(day, {}).get("net_burn_near") for day in flow_interval]
+    gross_burn = [burn_rows.get(day, {}).get("gross_burn_near") for day in flow_interval]
+    issuance = [daily_supply_metrics.get(day, {}).get("net_issuance_near") for day in flow_interval]
+    has_complete_flow_window = len(flow_interval) == days and flow_start_supply is not None
+    burn_total = (
+        sum(net_burn, Decimal(0))
+        if has_complete_flow_window and all(v is not None for v in net_burn) else None
+    )
+    gross_burn_total = (
+        sum(gross_burn, Decimal(0))
+        if has_complete_flow_window and all(v is not None for v in gross_burn) else None
+    )
+    issuance_total = (
+        sum(issuance, Decimal(0))
+        if has_complete_flow_window and all(v is not None for v in issuance) else None
+    )
     gross_issuance = issuance_total + burn_total if issuance_total is not None and burn_total is not None else None
-    gross_issuance_pct = _ratio_pct(gross_issuance, start_supply)
+    gross_issuance_pct = _ratio_pct(gross_issuance, flow_start_supply)
     return {
         "net_supply_change_near": change,
         "net_supply_growth_pct": growth,

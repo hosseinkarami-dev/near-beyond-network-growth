@@ -83,7 +83,7 @@ METHODOLOGIES = {
         },
         "buybacks": {
             "title": "NEAR Intents buybacks",
-            "description": "The BigQuery query identifies native NEAR transfers and wNEAR ft_transfer events into buybacks.multisignature.near and groups returned amounts by transfer_type. Analytics sums flows into daily and calendar-period bars. The available series shows recurring NEAR Intents inflows and more episodic 1Click flows, including 502,793 NEAR on 2026-09-09. These inflows do not prove completed purchases. The current wallet balance is a separate finalized FastNEAR RPC liquid balance and excludes locked stake.",
+            "description": "The BigQuery query identifies native NEAR transfers and wNEAR ft_transfer events into buybacks.multisignature.near and groups returned amounts by transfer_type. Analytics sums flows into daily and calendar-period bars. The available series shows recurring NEAR Intents inflows and more episodic 1Click & other revenue flows, including 502,793 NEAR on 2026-09-09. These inflows do not prove completed purchases. The current wallet balance is a separate finalized FastNEAR RPC liquid balance and excludes locked stake.",
         },
         "historical_active_stake": {
             "title": "Historical active validator stake",

@@ -13,7 +13,6 @@ from atomic_io import atomic_write_text
 from sources import Source, SourceName, get_source, raw_path
 from rpc_clients.near import NearRpcClient
 from console_ui import console, error
-from rich.progress import track
 
 DAILY_SUPPLY_PATH = raw_path(get_source(SourceName.BIGQUERY_DAILY_SUPPLY))
 LOOKBACK_MONTHS = 3
@@ -173,7 +172,11 @@ def collect_daily_active_validator_stake(
 
         completed = 0
         failures: list[dict[str, str]] = []
-        for row in track(pending_rows, description="FastNEAR daily stake", console=console):
+        # fetch_all owns a Rich Progress display while this collector runs.
+        # Starting rich.progress.track here would create a second Live display
+        # on the same console and raise LiveError before any RPC requests run.
+        total_pending = len(pending_rows)
+        for row_index, row in enumerate(pending_rows, start=1):
             day_text = row["date"]
             block_height = row["block_height"]
             request_error: Exception | None = None
@@ -241,7 +244,10 @@ def collect_daily_active_validator_stake(
                 continue
 
             if completed and completed % 10 == 0:
-                console.print(f"[green]OK[/green] saved {completed} new day(s) [dim]latest {day_text}[/dim]")
+                console.print(
+                    f"[green]OK[/green] saved {completed}/{total_pending} day(s) "
+                    f"[dim]latest {day_text} · request {row_index}/{total_pending}[/dim]"
+                )
 
         console.print(f"[green]OK[/green] {source.name}: {len(existing_items)} days saved, {completed} new -> {output}")
         if failures:

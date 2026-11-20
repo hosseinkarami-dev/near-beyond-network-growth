@@ -1,18 +1,18 @@
-# NEARscope: Beyond Network Growth
+# NEARProtocol: Beyond Network Growth
 
-NEARscope is a data pipeline and dashboard for looking past transaction counts. It asks whether activity across NEAR is matched by fees and revenue, whether any of that value is captured in ways relevant to the token, and how issuance, burns, and staking fit into the picture.
+"Beyond Network Growth" is a data pipeline and dashboard for looking past transaction counts. It asks whether activity across NEAR is matched by fees and revenue, whether any of that value is captured in ways relevant to the token, and how issuance, burns, and staking fit into the picture.
 
 The dashboard brings those measures together; it does not treat any one of them as proof of investment merit. Reported revenue, transfers to a wallet, completed purchases, and token burns are different things, and the project keeps them separate.
 
 ## Screenshots
 
 <p align="center">
-  <img src="screenshots/1.png" alt="NEARscope Dashboard overview" width="48%" />
-  <img src="screenshots/2.png" alt="NEARscope Network analytics" width="48%" />
+  <img src="screenshots/1.png" alt="NEARProtocol Dashboard overview" width="48%" />
+  <img src="screenshots/2.png" alt="NEARProtocol Network analytics" width="48%" />
 </p>
 <p align="center">
-  <img src="screenshots/4.png" alt="NEARscope NEAR Intents analytics" width="48%" />
-  <img src="screenshots/5.png" alt="NEARscope Protocol analytics" width="48%" />
+  <img src="screenshots/4.png" alt="NEARProtocol NEAR Intents analytics" width="48%" />
+  <img src="screenshots/5.png" alt="NEARProtocol Protocol analytics" width="48%" />
 </p>
 
 **[Open the live demo](https://scintillating-yeot-b124e3.netlify.app/)**

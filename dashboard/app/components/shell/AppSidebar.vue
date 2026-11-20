@@ -34,7 +34,7 @@ const groups = [
       <NuxtLink to="/" class="brand-mark" @click="$emit('close')">
         <span class="brand-symbol">N</span>
         <span class="brand-copy">
-          <strong>NEAR<span>scope</span></strong>
+          <strong>NEAR<span>Protocol</span></strong>
           <small>BEYOND NETWORK GROWTH</small>
         </span>
       </NuxtLink>

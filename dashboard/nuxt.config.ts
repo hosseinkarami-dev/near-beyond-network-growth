@@ -39,7 +39,7 @@ export default defineNuxtConfig({
   app: {
     head: {
       title: 'NEAR Investment Thesis',
-      titleTemplate: '%s · NEARscope',
+      titleTemplate: '%s · NEARProtocol',
       link: [{ rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
       meta: [
         { name: 'description', content: 'An investment thesis view of NEAR network activity, token economics, value capture, and ecosystem metrics.' },

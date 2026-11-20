@@ -129,7 +129,7 @@ def fetch_json(source: Source, timeout: int = 30) -> bool:
         output = raw_path(source)
         headers = {"Accept": "application/json"}
         if source.provider is SourceProvider.NEARBLOCKS:
-            headers["User-Agent"] = "NEARscope-Analytics/1.0"
+            headers["User-Agent"] = "NEARProtocol-Analytics/1.0"
             api_key = nearblocks_api_key()
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
@@ -192,7 +192,7 @@ def fetch_nearblocks_validators(source: Source, timeout: int = 30) -> bool:
             request_url = urlunsplit((
                 parts.scheme, parts.netloc, parts.path, urlencode(params), "",
             ))
-            headers = {"Accept": "application/json", "User-Agent": "NEARscope-Analytics/1.0"}
+            headers = {"Accept": "application/json", "User-Agent": "NEARProtocol-Analytics/1.0"}
             api_key = nearblocks_api_key()
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"

@@ -12,7 +12,7 @@ def main() -> int:
     """Run stages in order; fetch failures are warnings, later failures are fatal."""
 
     try:
-        banner("NEARscope data pipeline", "Fetch  /  Normalize  /  Analytics")
+        banner("Data pipeline", "Fetch  /  Normalize  /  Analytics")
         started = perf_counter()
         stage("Fetch raw data", "downloading and updating sources")
         fetch_failures: list[str] = []

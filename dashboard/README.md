@@ -1,6 +1,6 @@
 # Dashboard
 
-This is the Nuxt frontend for NEARscope. It reads the JSON files built by the Python pipeline and presents them in the Dashboard, Research & Methodology, Network, Tokenomics, Intents, and Protocols pages. Calculations and period aggregation belong to `scripts/analytics/`, not to Vue components.
+This is the Nuxt frontend. It reads the JSON files built by the Python pipeline and presents them in the Dashboard, Research & Methodology, Network, Tokenomics, Intents, and Protocols pages. Calculations and period aggregation belong to `scripts/analytics/`, not to Vue components.
 
 ## Run locally
 
